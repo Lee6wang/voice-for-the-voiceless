@@ -72,3 +72,35 @@ export async function synthesize(text: string, voice?: string): Promise<{ audio:
     throw e;
   }
 }
+
+/** 单次预录上限：防误传超长列表拖垮启动 */
+const PREWARM_MAX = 20;
+
+/**
+ * 后台预合成关键句到磁盘缓存（fire-and-forget，不阻塞调用方）。
+ * 用于 profile 保存时与 backend 启动时，把「紧急呼救语 + 常用语」提前合成好：
+ * 演示现场即使断网，/tts 也能从缓存返回这些句子（AGENTS.md §5.4 预录兜底）。
+ */
+export function prewarmPhrases(phrases: (string | undefined)[], voice?: string): void {
+  const texts = [...new Set(phrases.map((t) => t?.trim()).filter((t): t is string => !!t))]
+    .slice(0, PREWARM_MAX);
+  if (texts.length === 0) return;
+  void (async () => {
+    let done = 0;
+    for (const text of texts) {
+      if (existsSync(cacheFile(text, resolveVoice(voice)))) {
+        done++; // 已合成过，直接计数，不重复请求云端
+        continue;
+      }
+      try {
+        await synthesize(text, voice);
+        done++;
+      } catch (e) {
+        // 多半是断网：停掉本轮，缓存里已有的句子仍可兜底
+        console.warn('[tts] prewarm stopped:', e instanceof Error ? e.message : e);
+        break;
+      }
+    }
+    console.log(`[tts] prewarmed ${done}/${texts.length} phrase(s) to disk cache`);
+  })();
+}

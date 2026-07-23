@@ -29,6 +29,11 @@ export function getProfile(userId: string): UserProfile | undefined {
   return profiles.get(userId);
 }
 
+/** 全部已存 profile（启动时预录 TTS 关键句用） */
+export function listProfiles(): UserProfile[] {
+  return [...profiles.values()];
+}
+
 /** 保存并同步落盘（数据量极小，直接同步写，避免进程退出丢数据） */
 export function saveProfile(profile: UserProfile): void {
   profiles.set(profile.userId, profile);

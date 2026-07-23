@@ -3,7 +3,7 @@
 // 现状：/candidates 已接真实 LLM（OpenAI 兼容 provider，失败回退模板库）；
 //       /tts 已接 msedge-tts（免密钥 + 磁盘缓存兜底）；
 //       /asr 已接 sherpa-onnx SenseVoice 端侧离线识别；
-//       profile 已做 JSON 文件持久化。
+//       profile 已做 JSON 文件持久化，保存/启动时预录 TTS 关键句。
 // 对应文档：docs/接口契约.md §3
 
 import 'dotenv/config';
@@ -20,8 +20,8 @@ import {
 import { generateCandidates } from './candidates';
 import { asrReady, transcribe, warmupAsr } from './providers/asr';
 import { loadLlmConfig } from './providers/llm';
-import { synthesize } from './providers/tts';
-import { getProfile, loadProfiles, saveProfile } from './store';
+import { prewarmPhrases, synthesize } from './providers/tts';
+import { getProfile, listProfiles, loadProfiles, saveProfile } from './store';
 
 const app = express();
 app.use(cors());
@@ -29,6 +29,10 @@ app.use(express.json({ limit: '10mb' })); // base64 音频较大
 
 // ---- 配置存储（JSON 文件持久化，重启不丢；生产换 KV/DB）----
 loadProfiles();
+// 启动即把已存 profile 的紧急语/常用语预合成进磁盘缓存：现场断网也能朗读关键句
+for (const p of listProfiles()) {
+  prewarmPhrases([p.emergencyText, ...(p.commonPhrases ?? [])], p.voice);
+}
 
 // 3.1 POST /asr — 语音转文字（sherpa-onnx + SenseVoice 端侧离线识别，免密钥断网可用）
 app.post('/asr', async (req, res) => {
@@ -98,6 +102,8 @@ app.post('/profile', (req, res) => {
     return;
   }
   saveProfile(profile);
+  // 后台预合成紧急语 + 常用语（不阻塞响应；断网时由磁盘缓存兜底）
+  prewarmPhrases([profile.emergencyText, ...(profile.commonPhrases ?? [])], profile.voice);
   res.json({ ok: true });
 });
 
