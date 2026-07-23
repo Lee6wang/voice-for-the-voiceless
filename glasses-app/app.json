@@ -8,6 +8,7 @@
   "entrypoint": "index.html",
   "supported_languages": ["zh", "en"],
   "permissions": [
-    { "name": "g2-microphone", "desc": "聆听对方说话以生成候选回复" }
+    { "name": "g2-microphone", "desc": "聆听对方说话以生成候选回复" },
+    { "name": "network", "desc": "调用薄后端进行候选生成/ASR/TTS", "whitelist": ["http://192.168.32.61:8787", "http://localhost:8787"] }
   ]
 }

@@ -23,11 +23,12 @@
 ├── docs/          方案 / 接口契约 / 赛道信息
 ├── content/       内容与运营：小红书 Build in Public、对外文案（C）
 ├── shared/        接口契约单一真相源：共享类型 + 模板库（glasses-app 与 backend 共用）
-├── glasses-app/   眼镜插件 · TS + Even Hub SDK（A）
-├── backend/       云后端 · Node/TS：配置存储 + 云 API 代理（B）
-└── config-app/    独立配置 App · React Native + Expo（B）
+├── glasses-app/   单插件 · TS + Even Hub SDK：手机端配置/菜单 + 眼镜 HUD/交互（A）
+└── backend/       云后端 · Node/TS：密钥代理 + ASR/LLM/TTS 编排（B）
 ```
-根为 npm workspaces monorepo（shared/backend/glasses-app）；config-app 为 Expo 独立工程（自管依赖）。
+根为 npm workspaces monorepo（shared/backend/glasses-app）。
+
+> **架构定案 v0.2：单插件**。真机验证插件可在手机屏渲染可交互 UI，故个性化配置已并入 glasses-app 手机页、存本地 KVS，**取消独立 config-app**。
 
 ## 快速开始（协作者）
 
@@ -35,13 +36,12 @@
 npm install                 # 根目录一次，装好 shared/backend/glasses-app
 cp .env.example backend/.env # 填入云 API 密钥
 npm run dev:backend         # 起后端(:8787)
-npm run dev:glasses         # 起眼镜插件（浏览器按 Enter 开始聆听）
-# config-app 单独初始化，见 config-app/README.md
+npm run dev:glasses         # 起眼镜插件（纯浏览器按 Enter 开始聆听；真机用 npx evenhub qr --url http://<IP>:5173 扫码侧载）
 ```
 
 **先读**：`docs/无声之声-项目方案.md`（§3 交互 · §4 架构 · §7 排期）+ `docs/接口契约.md`（模块边界，改接口先改它）。
 
-**分工**：A→`glasses-app`；B→`backend`+`config-app`；C→`content`。
+**分工**：A→`glasses-app`（单插件：眼镜交互 + 手机端配置）；B→`backend`（密钥代理 + ASR/LLM/TTS 编排）；C→`content`。
 
 ## 参赛赛道
 
