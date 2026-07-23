@@ -38,26 +38,61 @@ function buildUserPrompt(heardText: string, exclude: string[]): string {
   return lines.join('\n');
 }
 
-/** 从 LLM 原始输出提取字符串数组：优先 JSON，退化为按行切分 */
-function parseTexts(raw: string): string[] {
-  const stripped = raw.replace(/```(?:json)?/g, '').trim();
-  const jsonMatch = stripped.match(/\[[\s\S]*\]/);
-  if (jsonMatch) {
+/** 递归解开模型偶尔返回的“双重 JSON 字符串”。 */
+function decodeJsonStrings(value: unknown, depth = 0): string[] | null {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === 'string');
+  }
+  if (typeof value !== 'string' || depth >= 2) return null;
+  try {
+    return decodeJsonStrings(JSON.parse(value), depth + 1);
+  } catch {
+    return null;
+  }
+}
+
+/** 尝试解析一个 JSON 候选；同时兼容被多转义一层的引号和换行。 */
+function tryParseJsonStrings(text: string): string[] | null {
+  const variants = [
+    text,
+    text.replace(/\\"/g, '"').replace(/\\n/g, '\n'),
+  ];
+  for (const variant of variants) {
     try {
-      const arr = JSON.parse(jsonMatch[0]);
-      if (Array.isArray(arr)) return arr.filter((x): x is string => typeof x === 'string');
+      const decoded = decodeJsonStrings(JSON.parse(variant));
+      if (decoded) return decoded;
     } catch {
-      /* 落入按行切分 */
+      /* 尝试下一个兼容格式 */
     }
   }
+  return null;
+}
+
+/** 从 LLM 原始输出提取字符串数组：优先 JSON，退化为按行切分。 */
+export function parseCandidateTexts(raw: string): string[] {
+  const stripped = raw.replace(/```(?:json)?/g, '').trim();
+  const direct = tryParseJsonStrings(stripped);
+  if (direct) return direct;
+
+  const jsonMatch = stripped.match(/\[[\s\S]*\]/);
+  if (jsonMatch) {
+    const matched = tryParseJsonStrings(jsonMatch[0]);
+    if (matched) return matched;
+  }
+
   return stripped
     .split('\n')
     .map((l) => l.replace(/^\s*(?:\d+[.、)]|[-*•])\s*/, '').trim())
+    .map((l) => l.replace(/^[\s[\],"'\\]+|[\s[\],"'\\]+$/g, '').trim())
     .filter(Boolean);
 }
 
 /** 确定性清洗：去引号→去重→剔除超长/已展示→模板补足到恰好 4 条 */
-function sanitize(texts: string[], heardText: string, exclude: string[]): Candidate[] {
+export function sanitizeCandidates(
+  texts: string[],
+  heardText: string,
+  exclude: string[],
+): Candidate[] {
   const seen = new Set<string>(exclude);
   const cleaned: string[] = [];
   for (const t of texts) {
@@ -91,7 +126,7 @@ export async function generateCandidates(
   const cfg = loadLlmConfig();
   if (!cfg) throw new Error('LLM_API_KEY not configured');
   const raw = await chatComplete(cfg, buildSystemPrompt(profile), buildUserPrompt(heardText, exclude));
-  const candidates = sanitize(parseTexts(raw), heardText, exclude);
+  const candidates = sanitizeCandidates(parseCandidateTexts(raw), heardText, exclude);
   if (candidates.length !== CANDIDATE_COUNT) throw new Error('sanitize produced wrong count');
   return candidates;
 }

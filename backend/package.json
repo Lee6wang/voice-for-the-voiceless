@@ -6,7 +6,8 @@
   "description": "薄云后端：配置存储 + 云 API 密钥代理（ASR/LLM/TTS）",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@vftv/shared": "*",
