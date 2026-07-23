@@ -1,7 +1,12 @@
 # config-app · 独立配置 App（B）
 
+> **保留/冻结（2026-07-24）：**本 App 已在安卓模拟器跑通，必须保留作为备用
+> 配置入口，但不再是主客户端。新的主流程改由
+> `../even-hub-plugin/` 的手机控制页 + 眼镜 HUD 完成。在主插件闭环前不继续扩展
+> 登录、iOS 发布或视觉细节。
+
 React Native + Expo（TypeScript）。录入名字、常用表达、语气与紧急表达，
-保存到 backend `/profile`，供 glasses-app 在会话开始时读取。
+保存到 backend `/profile`，供 Even Hub 插件在会话开始时读取。
 
 > 本目录不纳入根 npm workspaces，依赖与 lockfile 独立管理。
 

@@ -1,7 +1,8 @@
 # ASR 模型目录
 
 `/asr` 使用 sherpa-onnx + SenseVoice 端侧离线识别（免密钥、断网可用）。
-模型约 170MB 不入库，首次部署需手动下载：
+模型不入库，首次部署需手动下载。完整解压目录约 1.1GB，其中运行时实际使用
+`model.int8.onnx`（约 240MB）和 `tokens.txt`：
 
 ```bash
 cd backend/models

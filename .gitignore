@@ -4,6 +4,8 @@
 # ── 大文件 / 二进制（不入库）──
 *.zip
 *.apk
+*.ehp
+*.ehpk
 
 # ── Python（host 主机端）──
 __pycache__/

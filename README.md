@@ -5,27 +5,30 @@
 
 面向的是「**能听、能想，却卡在'说出口'这一步**」的人——不是不能说话的医疗失语者，而是身边真实存在、想表达却开不了口的人。
 
-## 硬件与架构（Even 眼镜/戒指 + 手机 + 云 API）
+## 当前架构（Even Hub 插件 + backend）
 
 | 角色 | 载体 | 职责 |
 |---|---|---|
 | 显示 + 采音 | 👓 Even G2 眼镜 | HUD 显示候选（单色绿 ≤4 条）· 四麦 16kHz PCM · R1/镜腿事件 |
 | 输入 | 💍 Even R1 戒指 | swipe 导航 / tap 确认 / double-tap 换批（镜腿 double-tap 紧急）|
-| 大脑 | 📱 Even Hub 插件（TS，跑在手机上） | 收 PCM/事件 → 调云 API → 推候选回 HUD → 手机扬声器外放 TTS |
-| 配置 | 📱 手机配置 App | 名字/常用语/语气等个性化 → 写入薄云后端 |
-| 云 | ☁️ ASR + LLM + TTS ／ 薄后端 | 语音转写 / 候选生成 / 语音合成；薄后端存配置 + 代管 API 密钥 |
+| 主客户端 | 📱 官方 Even App 内的 Even Hub 插件 | 收 PCM/事件 → 调 backend → 推候选回 HUD → 手机扬声器外放 TTS；手机控制页同时负责个性化配置 |
+| 后端 | 🧠 Node/TS backend | SenseVoice 离线 ASR + OpenAI 兼容 LLM + Edge TTS + profile 持久化 |
 
-> **笔记本已不在链路里**。完整方案见 [docs/无声之声-项目方案.md](docs/无声之声-项目方案.md)（§3 交互 · §4 架构 · §5 可行性 · §7 排期）；模块间协议见 [docs/接口契约.md](docs/接口契约.md)。
+> 不再需要自研 Android/iOS App 作为主客户端，但仍需要官方 Even Realities App
+> 连接 G2/R1 并承载插件。开发和比赛 Demo 阶段 backend 可运行在 Mac；正式部署再迁移云端。
+> 新插件方案见 [even-hub-plugin/DEVELOPMENT.md](even-hub-plugin/DEVELOPMENT.md)，
+> 模块协议见 [docs/接口契约.md](docs/接口契约.md)。
 
 ## 仓库结构
 
 ```
 ├── docs/          方案 / 接口契约 / 赛道信息
 ├── content/       内容与运营：小红书 Build in Public、对外文案（C）
-├── shared/        接口契约单一真相源：共享类型 + 模板库（glasses-app 与 backend 共用）
-├── glasses-app/   眼镜插件 · TS + Even Hub SDK（A）
-├── backend/       云后端 · Node/TS：配置存储 + 云 API 代理（B）
-└── config-app/    独立配置 App · React Native + Expo（B）
+├── shared/        接口契约单一真相源：共享类型 + 模板库（插件与 backend 共用）
+├── even-hub-plugin/ 新的 Even Hub 主插件（文档已建，运行时代码待初始化）
+├── glasses-app/   旧浏览器状态机骨架，保留参考
+├── backend/       Node/TS：ASR + LLM + TTS + profile（B）
+└── config-app/    已跑通的 React Native 安卓配置 App，保留为备用（B）
 ```
 根为 npm workspaces monorepo（shared/backend/glasses-app）；config-app 为 Expo 独立工程（自管依赖）。
 
@@ -33,15 +36,18 @@
 
 ```bash
 npm install                 # 根目录一次，装好 shared/backend/glasses-app
-cp .env.example backend/.env # 填入云 API 密钥
+cp backend/env.example backend/.env # 如需真实 LLM，填入 LLM_API_KEY
 npm run dev:backend         # 起后端(:8787)
-npm run dev:glasses         # 起眼镜插件（浏览器按 Enter 开始聆听）
-# config-app 单独初始化，见 config-app/README.md
+curl http://127.0.0.1:8787/health
 ```
 
-**先读**：`docs/无声之声-项目方案.md`（§3 交互 · §4 架构 · §7 排期）+ `docs/接口契约.md`（模块边界，改接口先改它）。
+离线 ASR 模型首次安装见 `backend/models/README.md`。新插件从
+`even-hub-plugin/DEVELOPMENT.md` 开始，优先采用 Even 官方 ASR 模板。
 
-**分工**：A→`glasses-app`；B→`backend`+`config-app`；C→`content`。
+**先读**：`AGENTS.md` + `even-hub-plugin/DEVELOPMENT.md` +
+`docs/接口契约.md`。
+
+**分工**：A→Even Hub 插件；B→backend（config-app 冻结备用）；C→content。
 
 ## 参赛赛道
 

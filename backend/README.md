@@ -1,21 +1,26 @@
 # backend · 薄云后端（B）
 
-配置存储 + 云 API 密钥代理。glasses-app 只调这里，**API 密钥只在本服务的 `.env`，绝不进仓库**。
+配置存储 + AI 能力编排。Even Hub 插件只调用这里，**API 密钥只在本服务的 `.env`，绝不进仓库**。
 
 ## 接口（详见 `../docs/接口契约.md` §3）
-- `POST /asr` — 语音转文字（现为 mock，TODO 接云 ASR）
-- `POST /candidates` — 生成候选（已接**模板库兜底**；TODO 接云 LLM）
-- `POST /tts` — 文字转语音（现为 mock，TODO 接云 TTS）
-- `GET/POST /profile` — 个性化配置读写（内存存储）
+- `POST /asr` — sherpa-onnx + SenseVoice 离线语音识别
+- `POST /candidates` — OpenAI 兼容 LLM 生成个性化候选，失败走模板库
+- `POST /tts` — msedge-tts 中文语音合成，带磁盘缓存
+- `GET/POST /profile` — JSON 文件持久化的个性化配置
+- `GET /health` — 检查 backend、LLM 配置和 ASR 模型状态
 
 ## 启动
 ```bash
 # 在仓库根执行一次
 npm install
-# 当前 mock 无需密钥；接入云 API 后再创建 backend/.env
+# 复制配置样例；LLM_API_KEY 留空时 /candidates 自动走模板库
+cp backend/env.example backend/.env
 # 起服务
 npm run dev:backend            # 或：npm --workspace backend run dev
 ```
+
+离线 ASR 首次使用前需下载本地模型，见
+[`models/README.md`](models/README.md)。模型不进入 Git。
 默认监听 `0.0.0.0:8787`：
 
 - Mac 本机访问：`http://localhost:8787`
@@ -50,10 +55,16 @@ HOST=127.0.0.1 npm run dev:backend
 
 > 当前 Demo 接口没有鉴权且允许跨域，只适合可信局域网。不要设置公网端口映射，也不要直接暴露在公共 Wi-Fi。
 
-## 待办（B）
-- [ ] `/candidates` 拼 prompt（注入 profile）+ 接云 LLM，解析出 4 条 ≤12 字
-- [ ] `/asr` 接云流式/整段识别
-- [ ] `/tts` 接云合成，返回 base64
-- [ ] 密钥读取与各 provider 适配（讯飞/阿里云/DeepSeek/通义/Edge-TTS）
+## 当前完成度
 
-> 兜底说明：backend 侧 LLM 失败会自动走 `@vftv/shared` 的模板库；**断网兜底在 glasses-app 插件端**（见接口契约 §3.2）。
+- [x] `/candidates` 注入 profile，清洗为恰好 4 条且每条 ≤12 字
+- [x] LLM 未配置、超时或输出异常时回退模板库
+- [x] `/asr` 接入本地 SenseVoice 整段识别
+- [x] `/tts` 返回 base64 MP3，并缓存已生成语音
+- [x] profile 保存到 `backend/data/profiles.json`
+- [x] 保存/启动时预生成紧急表达与常用表达的 TTS 缓存
+- [ ] 用 Even G2 输出的真实 PCM 做 ASR 兼容性和延迟测试
+- [ ] 验证 Even Hub 插件在手机控制页面播放返回的 MP3
+- [ ] 添加完整接口集成测试与请求并发保护
+
+> 兜底说明：backend 侧 LLM 失败会自动走 `@vftv/shared` 的模板库；**backend 完全不可达时的兜底必须在 Even Hub 插件端**（见接口契约 §3.2）。
