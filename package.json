@@ -6,13 +6,15 @@
   "workspaces": [
     "shared",
     "backend",
-    "glasses-app"
+    "glasses-app",
+    "even-hub-plugin"
   ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "dev:backend": "npm --workspace backend run dev",
-    "dev:glasses": "npm --workspace glasses-app run dev"
+    "dev:glasses": "npm --workspace glasses-app run dev",
+    "dev:plugin": "npm --workspace even-hub-plugin run dev"
   }
 }
