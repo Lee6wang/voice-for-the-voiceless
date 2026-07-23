@@ -22,10 +22,10 @@ npm run dev:backend            # 或：npm --workspace backend run dev
 - Android Emulator 访问：`http://10.0.2.2:8787`
 - 同一局域网的手机/眼镜访问：`http://<Mac 局域网 IP>:8787`
 
-例如 Mac 当前地址是 `172.20.10.14`，设备端应填写：
+例如 Mac 地址是 `192.168.1.10`，设备端应填写：
 
 ```text
-http://172.20.10.14:8787
+http://192.168.1.10:8787
 ```
 
 启动前可用下面的命令查询 Wi-Fi 地址：
