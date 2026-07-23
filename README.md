@@ -21,6 +21,7 @@
 
 ```
 ├── docs/        项目方案、接口契约、赛道信息
+├── content/     内容与运营：小红书 Build in Public、对外文案素材（第三位成员）
 ├── HardWare/    佩戴/固定/演示道具等硬件相关（待补充）
 └── SoftWare/    glasses-app(眼镜插件) / config-app(手机配置) / backend(薄后端)（待开发）
 ```
