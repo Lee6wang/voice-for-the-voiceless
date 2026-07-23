@@ -1,0 +1,30 @@
+# ── macOS ──
+.DS_Store
+
+# ── 大文件 / 二进制（不入库）──
+*.zip
+*.apk
+
+# ── Python（host 主机端）──
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+
+# ── Node / TypeScript（glasses-app 眼镜端）──
+node_modules/
+dist/
+build/
+*.log
+
+# ── 运行产物：音频 / 模型 ──
+audio/
+models/
+*.wav
+*.bin
+
+# ── IDE ──
+.vscode/
+.idea/
