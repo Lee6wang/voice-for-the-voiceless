@@ -2,7 +2,8 @@
 // 职责：配置存储 + 云 API 密钥代理。glasses-app 只调这里，密钥不落客户端。
 // 现状：/candidates 已接真实 LLM（OpenAI 兼容 provider，失败回退模板库）；
 //       /tts 已接 msedge-tts（免密钥 + 磁盘缓存兜底）；
-//       profile 已做 JSON 文件持久化；/asr 仍为 mock，见 TODO。
+//       /asr 已接 sherpa-onnx SenseVoice 端侧离线识别；
+//       profile 已做 JSON 文件持久化。
 // 对应文档：docs/接口契约.md §3
 
 import 'dotenv/config';
@@ -17,6 +18,7 @@ import {
   type UserProfile,
 } from '@vftv/shared';
 import { generateCandidates } from './candidates';
+import { asrReady, transcribe, warmupAsr } from './providers/asr';
 import { loadLlmConfig } from './providers/llm';
 import { synthesize } from './providers/tts';
 import { getProfile, loadProfiles, saveProfile } from './store';
@@ -28,11 +30,25 @@ app.use(express.json({ limit: '10mb' })); // base64 音频较大
 // ---- 配置存储（JSON 文件持久化，重启不丢；生产换 KV/DB）----
 loadProfiles();
 
-// 3.1 POST /asr — 语音转文字
+// 3.1 POST /asr — 语音转文字（sherpa-onnx + SenseVoice 端侧离线识别，免密钥断网可用）
 app.post('/asr', async (req, res) => {
-  // TODO: 调云 ASR（讯飞/阿里云），把 req.body.audio(base64 PCM16k) 转文字
-  const resp: AsrResponse = { text: '（示例）你中午想吃什么？' };
-  res.json(resp);
+  const { audio } = req.body as { audio?: string };
+  if (!audio) {
+    res.status(400).json({ ok: false, error: 'audio required (base64 PCM 16kHz mono)' });
+    return;
+  }
+  if (!asrReady()) {
+    // 模型未下载：明确报错而非假文本，便于 A 端区分故障
+    res.status(503).json({ ok: false, error: 'ASR model not downloaded, see backend/models/README.md' });
+    return;
+  }
+  try {
+    const resp: AsrResponse = { text: transcribe(audio) };
+    res.json(resp);
+  } catch (e) {
+    console.warn('[asr] failed:', e instanceof Error ? e.message : e);
+    res.status(500).json({ ok: false, error: 'ASR failed' });
+  }
 });
 
 // 3.2 POST /candidates — 生成候选（核心）
@@ -91,6 +107,7 @@ app.get('/health', (_req, res) => {
     ok: true,
     llm: loadLlmConfig() !== null, // false = 未配 LLM_API_KEY，/candidates 恒走模板
     tts: true, // msedge-tts 免密钥，始终可用（断网时靠缓存）
+    asr: asrReady(), // false = 模型未下载，/asr 返 503
     uptime: Math.round(process.uptime()),
   });
 });
@@ -100,4 +117,5 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 
 app.listen(PORT, HOST, () => {
   console.log(`[backend] listening on http://${HOST}:${PORT}`);
+  warmupAsr(); // 预热识别模型，避免首次 /asr 叠加加载延迟
 });
