@@ -18,6 +18,9 @@ node_modules/
 dist/
 build/
 *.log
+
+# ── backend 本地数据（profile 持久化，不入库）──
+backend/data/
 *.tsbuildinfo
 
 # ── Expo / React Native（config-app）──
