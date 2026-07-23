@@ -1,27 +1,30 @@
-// 无声之声 · 眼镜插件（骨架）
+// 无声之声 · 眼镜插件
 // 职责：采 PCM / HUD 渲染 / R1 事件 / 云编排 / TTS 播放 / 选择状态机。
-// 现状：状态机与流程已搭；Even Hub SDK 的采音/HUD/输入/播音以 TODO 标注。
+// SDK 细节收敛在 ./hub（采音/HUD/输入/播音），本文件只管状态机与云编排。
 // 对应文档：docs/接口契约.md §2（状态机）、§3（后端接口）
 //
-// ⚠️ Even Hub SDK 接入：确认版本后 `npm i @evenrealities/even_hub_sdk`，
-//    再把下面 4 处 TODO(SDK) 换成真实调用。开发期可用键盘在模拟器里代替戒指事件。
+// 双模式：有 Even bridge（Even App / 模拟器）走真实 SDK；纯浏览器下 hub 自动回退键盘+DOM。
 
 import {
   pickTemplateCandidates, // 断网/后端不可达时的插件端兜底（②）
+  type AsrRequest,
+  type AsrResponse,
   type CandidateSet,
   type CandidatesRequest,
   type CandidatesResponse,
   type RawInput,
+  type TtsRequest,
+  type TtsResponse,
   type UiState,
   type UserProfile,
 } from '@vftv/shared';
+import { capturePcm, hudWrite, initHub, onInput, playAudioBase64 } from './hub';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8787';
 
 let state: UiState = 'IDLE';
 let profile: UserProfile = { userId: 'demo', commonPhrases: [] };
 let current: CandidateSet | null = null;
-let micMuted = false; // 防回声：SPEAKING 时置 true
 
 // ---- 主流程 ----
 
@@ -61,9 +64,7 @@ async function confirmAndSpeak() {
   if (state !== 'CANDIDATES' || !current) return;
   const chosen = current.candidates[current.highlightIndex];
   setState('SPEAKING');
-  micMuted = true;
   await speak(chosen.text);
-  micMuted = false;
   setState('IDLE');
   renderHUD('');
 }
@@ -102,9 +103,7 @@ async function refresh() {
 }
 
 async function emergency() {
-  micMuted = true;
   await speak(profile.emergencyText ?? '请帮帮我');
-  micMuted = false;
   setState('IDLE');
 }
 
@@ -112,74 +111,61 @@ function setState(s: UiState) {
   state = s;
 }
 
-// ---- 需要 Even Hub SDK 接入的部分（TODO(SDK)）----
+// ---- 采音 / ASR / TTS（采音与播音落在 ./hub，防回声见状态机）----
 
-async function captureAudio(_ms: number): Promise<ArrayBuffer> {
-  // TODO(SDK): 用 Even Hub SDK 采集四麦 16kHz PCM
-  return new ArrayBuffer(0);
+async function captureAudio(ms: number): Promise<string> {
+  return capturePcm(ms); // 采四麦 16kHz PCM，返回 base64（无 bridge 时为空串）
 }
 
-async function asr(_audio: ArrayBuffer): Promise<string> {
+async function asr(audio: string): Promise<string> {
   // 经 backend 代理调云 ASR
   try {
+    const body: AsrRequest = { audio, final: true };
     const r = await fetch(`${BACKEND}/asr`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ audio: '', final: true }), // TODO: base64(audio)
+      body: JSON.stringify(body),
     });
-    return (await r.json()).text ?? '';
+    return ((await r.json()) as AsrResponse).text ?? '';
   } catch {
     return '';
   }
 }
 
 async function speak(text: string) {
-  if (micMuted === false) return; // 只在标记静音后播放（防回声）
+  // 防回声由「仅 LISTENING 窗口开麦、SPEAKING 期间不开麦」保证，无需守卫标志位
+  let audio = '';
   try {
+    const body: TtsRequest = { text, voice: profile.voice };
     const r = await fetch(`${BACKEND}/tts`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(body),
     });
-    const { audio } = await r.json();
-    // TODO(SDK/手机): 把 base64 音频播到手机扬声器（Day0 待验证：插件能否播音）
-    void audio;
+    audio = ((await r.json()) as TtsResponse).audio ?? '';
   } catch {
-    /* 断网时可退回预录关键句 WAV */
+    /* 断网/无后端：audio 保持空，由 playAudioBase64 调试音或预录 WAV 兜底 */
   }
+  await playAudioBase64(audio); // 播到手机扬声器（Day0 命脉；空音频时调试期会播测试音）
 }
 
 function renderHUD(text: string) {
-  // TODO(SDK): 用 Even Hub SDK 渲染到 HUD（单色绿，≤4 容器）
-  const el = document.getElementById('hud');
-  if (el) el.textContent = text;
+  hudWrite(text);
 }
 
 function renderCandidates(set: CandidateSet) {
-  // TODO(SDK): 渲染 4 条候选，高亮 set.highlightIndex
-  const el = document.getElementById('hud');
-  if (el) {
-    el.textContent =
-      `听到：${set.heardText}\n` +
-      set.candidates.map((c, i) => `${i === set.highlightIndex ? '▶ ' : '  '}${c.text}`).join('\n');
-  }
+  const body =
+    `听到：${set.heardText}\n` +
+    set.candidates.map((c, i) => `${i === set.highlightIndex ? '▶ ' : '  '}${c.text}`).join('\n');
+  hudWrite(body);
 }
 
 function openActiveMode() {
   // P1：主动模式意图轮盘（吃/喝/如厕/疼痛/呼叫），有余量再做
 }
 
-// 开发期：用键盘在浏览器/模拟器里代替戒指事件
-window.addEventListener('keydown', (e) => {
-  const map: Record<string, RawInput> = {
-    Enter: 'tap',
-    ArrowUp: 'swipe_up',
-    ArrowDown: 'swipe_down',
-    ' ': 'double_tap',
-    Escape: 'temple_double_tap',
-  };
-  const input = map[e.key];
-  if (input) handleInput(input);
+// 启动：先等 SDK bridge（超时回退纯浏览器），再注册输入并渲染首屏
+initHub().then(() => {
+  onInput(handleInput); // SDK 事件 + 键盘（开发期）统一入口
+  renderHUD('无声之声 · 轻点戒指开始聆听');
 });
-
-renderHUD('无声之声 · 按 Enter 开始聆听（开发期键盘代替戒指）');

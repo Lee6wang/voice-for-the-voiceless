@@ -1,0 +1,13 @@
+{
+  "package_id": "com.vftv.glasses",
+  "edition": "202601",
+  "name": "无声之声",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.9",
+  "entrypoint": "index.html",
+  "supported_languages": ["zh", "en"],
+  "permissions": [
+    { "name": "g2-microphone", "desc": "聆听对方说话以生成候选回复" }
+  ]
+}

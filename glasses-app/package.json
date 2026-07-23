@@ -5,14 +5,19 @@
   "type": "module",
   "description": "Even G2 眼镜插件（TS + Even Hub SDK）：采音/HUD/输入/云编排",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "sim": "evenhub-simulator http://localhost:5173",
+    "qr": "evenhub qr --port 5173"
   },
   "dependencies": {
+    "@evenrealities/even_hub_sdk": "^0.0.12",
     "@vftv/shared": "*"
   },
   "devDependencies": {
+    "@evenrealities/evenhub-cli": "^0.1.13",
+    "@evenrealities/evenhub-simulator": "^0.8.0",
     "typescript": "^5.5.0",
     "vite": "^5.4.0"
   }
