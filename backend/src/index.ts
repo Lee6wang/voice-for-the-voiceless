@@ -57,10 +57,10 @@ app.post('/asr', async (req, res) => {
 
 // 3.2 POST /candidates — 生成候选（核心）
 app.post('/candidates', async (req, res) => {
-  const { turnId, heardText, profile, exclude = [] } = req.body as CandidatesRequest;
+  const { turnId, heardText, profile, exclude = [], context } = req.body as CandidatesRequest;
   try {
-    // 真实 LLM：注入 profile.name/commonPhrases/tone，输出经确定性清洗（恰好 4 条、去重、≤12 字）
-    const candidates = await generateCandidates(heardText, profile, exclude);
+    // 真实 LLM：注入 profile.name/commonPhrases/tone + 场景上下文（时间/地点），输出经确定性清洗
+    const candidates = await generateCandidates(heardText, profile, exclude, context);
     const resp: CandidatesResponse = { turnId, candidates };
     res.json(resp);
   } catch (e) {

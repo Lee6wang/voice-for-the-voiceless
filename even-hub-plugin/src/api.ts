@@ -12,6 +12,7 @@ import {
   type UserProfile,
 } from '@vftv/shared';
 import { getBackendUrl, cacheProfile, readCachedProfile, USER_ID } from './config';
+import { buildSceneContext } from './context';
 
 export interface HealthStatus {
   ok: boolean;
@@ -60,6 +61,7 @@ export async function fetchAsr(audioB64: string): Promise<string> {
 /**
  * 候选：backend 可达走 LLM（backend 内部已有模板兜底）；
  * fetch 失败（断网/backend 挂）→ 插件端用同一份 shared 模板库，保证永远有 4 条。
+ * 每轮自动携带场景上下文（时间/地点），让候选贴合情境。
  */
 export async function fetchCandidates(
   turnId: string,
@@ -67,7 +69,8 @@ export async function fetchCandidates(
   profile: UserProfile,
   exclude: string[] = [],
 ): Promise<{ candidates: Candidate[]; offline: boolean }> {
-  const req: CandidatesRequest = { turnId, heardText, profile, exclude };
+  const context = await buildSceneContext();
+  const req: CandidatesRequest = { turnId, heardText, profile, exclude, context };
   try {
     const resp = await post<CandidatesResponse>('/candidates', req, 8000);
     if (resp.candidates?.length) return { candidates: resp.candidates, offline: false };

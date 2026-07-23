@@ -6,8 +6,10 @@ import {
   CANDIDATE_COUNT,
   CANDIDATE_MAX_LEN,
   type Candidate,
+  type SceneContext,
   type UserProfile,
 } from '@vftv/shared';
+import { resolveScene } from './providers/geo';
 import { chatComplete, loadLlmConfig } from './providers/llm';
 
 const TONE_LABEL: Record<NonNullable<UserProfile['tone']>, string> = {
@@ -32,8 +34,17 @@ function buildSystemPrompt(profile: UserProfile): string {
   return lines.join('\n');
 }
 
-function buildUserPrompt(heardText: string, exclude: string[]): string {
-  const lines = [`对方刚刚说：「${heardText}」`, '请生成回复候选。'];
+function buildUserPrompt(heardText: string, exclude: string[], context?: SceneContext): string {
+  const lines: string[] = [];
+  const scenery: string[] = [];
+  if (context?.localTime) {
+    scenery.push(`现在是 ${context.localTime}${context.timeOfDay ? `（${context.timeOfDay}）` : ''}`);
+  }
+  if (context?.scene) scenery.push(`用户正在${context.scene}`);
+  if (scenery.length > 0) {
+    lines.push(`情境：${scenery.join('，')}。候选要贴合这个情境（如餐厅里可以点菜/要水/买单），但不要生硬提及时间地点。`);
+  }
+  lines.push(`对方刚刚说：「${heardText}」`, '请生成回复候选。');
   if (exclude.length > 0) lines.push(`这些已经展示过，禁止重复或近似：${exclude.join('、')}`);
   return lines.join('\n');
 }
@@ -122,10 +133,15 @@ export async function generateCandidates(
   heardText: string,
   profile: UserProfile,
   exclude: string[],
+  context?: SceneContext,
 ): Promise<Candidate[]> {
   const cfg = loadLlmConfig();
   if (!cfg) throw new Error('LLM_API_KEY not configured');
-  const raw = await chatComplete(cfg, buildSystemPrompt(profile), buildUserPrompt(heardText, exclude));
+  // 场景缺失但有经纬度 → 尽力反查 POI（2s 内，失败就当没有）
+  if (context && !context.scene && context.lat != null && context.lon != null) {
+    context = { ...context, scene: (await resolveScene(context.lat, context.lon)) ?? undefined };
+  }
+  const raw = await chatComplete(cfg, buildSystemPrompt(profile), buildUserPrompt(heardText, exclude, context));
   const candidates = sanitizeCandidates(parseCandidateTexts(raw), heardText, exclude);
   if (candidates.length !== CANDIDATE_COUNT) throw new Error('sanitize produced wrong count');
   return candidates;

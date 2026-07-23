@@ -7,6 +7,7 @@ import type { RawInput, UiState } from '@vftv/shared';
 import { fetchHealth, fetchProfile, saveProfile } from './api';
 import { audioUnlocked, unlockAudio } from './audio';
 import { getBackendUrl, setBackendUrl, USER_ID } from './config';
+import { getSceneSetting, setSceneSetting, SCENE_OPTIONS } from './context';
 
 export interface UiHandlers {
   onSimulateHeard(text: string): void;
@@ -73,6 +74,16 @@ export function mountUi(h: UiHandlers): void {
     </div>
 
     <div class="card">
+      <h2>情境（候选会贴合时间与场景）</h2>
+      <div class="row"><select id="sceneSetting">
+        <option value="auto">自动（GPS 定位识别）</option>
+        <option value="">关闭（只用时间）</option>
+        ${SCENE_OPTIONS.map((s) => `<option value="${s}">${s}</option>`).join('')}
+      </select></div>
+      <div class="sub">时间总是自动携带（如午餐时段）；室内定位不准时建议手选场景</div>
+    </div>
+
+    <div class="card">
       <h2>实时状态</h2>
       <div id="mirrorState">IDLE</div>
       <div id="mirrorDetail" class="sub">等待开始</div>
@@ -113,6 +124,12 @@ export function mountUi(h: UiHandlers): void {
   `;
 
   (document.getElementById('backendUrl') as HTMLInputElement).value = getBackendUrl();
+  const sceneSel = document.getElementById('sceneSetting') as HTMLSelectElement;
+  sceneSel.value = getSceneSetting();
+  sceneSel.addEventListener('change', () => {
+    setSceneSetting(sceneSel.value);
+    toast(sceneSel.value === 'auto' ? '将用 GPS 自动识别场景' : sceneSel.value ? `场景：${sceneSel.value}` : '已关闭场景，仅用时间');
+  });
   bind('saveUrl', () => {
     const url = (document.getElementById('backendUrl') as HTMLInputElement).value;
     setBackendUrl(url);

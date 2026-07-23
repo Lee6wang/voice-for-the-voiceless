@@ -64,12 +64,27 @@ export interface AsrResponse {
   text: string;
 }
 
+/** 场景上下文（插件采集，backend 注入 prompt；全部可选，缺了就当没有） */
+export interface SceneContext {
+  /** 本地时间 HH:mm */
+  localTime?: string;
+  /** 时段标签，如「午餐时段」 */
+  timeOfDay?: string;
+  /** 场景标签，如「餐厅」；插件手选，或 backend 按经纬度反查 POI 得出 */
+  scene?: string;
+  /** 经纬度（scene 缺失时 backend 可反查） */
+  lat?: number;
+  lon?: number;
+}
+
 export interface CandidatesRequest {
   turnId: string;
   heardText: string;
   profile: UserProfile;
   /** 换一批时传，避免重复 */
   exclude?: string[];
+  /** 场景上下文（时间/地点），候选会贴合情境 */
+  context?: SceneContext;
 }
 export interface CandidatesResponse {
   turnId: string;
