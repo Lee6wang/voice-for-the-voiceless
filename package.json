@@ -1,0 +1,18 @@
+{
+  "name": "voice-for-the-voiceless",
+  "version": "0.1.0",
+  "private": true,
+  "description": "无声之声 · 帮人把话说出口的社交表达搭子（Even 眼镜/戒指 + 云 API）",
+  "workspaces": [
+    "shared",
+    "backend",
+    "glasses-app"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev:backend": "npm --workspace backend run dev",
+    "dev:glasses": "npm --workspace glasses-app run dev"
+  }
+}

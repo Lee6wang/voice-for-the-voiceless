@@ -13,11 +13,16 @@ venv/
 .env
 .env.*
 
-# ── Node / TypeScript（glasses-app 眼镜端）──
+# ── Node / TypeScript（glasses-app / backend / shared）──
 node_modules/
 dist/
 build/
 *.log
+*.tsbuildinfo
+
+# ── Expo / React Native（config-app）──
+.expo/
+.expo-shared/
 
 # ── 运行产物：音频 / 模型 ──
 audio/
