@@ -83,6 +83,8 @@ export interface TtsRequest {
 export interface TtsResponse {
   /** base64 mp3/wav */
   audio: string;
+  /** 音频 MIME，如 'audio/mpeg'；可选，缺省按 mp3 处理（向后兼容） */
+  mime?: string;
 }
 
 /** 候选恒为 4 条 */

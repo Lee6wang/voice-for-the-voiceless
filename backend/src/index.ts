@@ -1,7 +1,8 @@
 // 无声之声 · 薄云后端
 // 职责：配置存储 + 云 API 密钥代理。glasses-app 只调这里，密钥不落客户端。
 // 现状：/candidates 已接真实 LLM（OpenAI 兼容 provider，失败回退模板库）；
-//       profile 已做 JSON 文件持久化；/asr /tts 仍为 mock，见各 TODO。
+//       /tts 已接 msedge-tts（免密钥 + 磁盘缓存兜底）；
+//       profile 已做 JSON 文件持久化；/asr 仍为 mock，见 TODO。
 // 对应文档：docs/接口契约.md §3
 
 import 'dotenv/config';
@@ -17,6 +18,7 @@ import {
 } from '@vftv/shared';
 import { generateCandidates } from './candidates';
 import { loadLlmConfig } from './providers/llm';
+import { synthesize } from './providers/tts';
 import { getProfile, loadProfiles, saveProfile } from './store';
 
 const app = express();
@@ -49,11 +51,23 @@ app.post('/candidates', async (req, res) => {
   }
 });
 
-// 3.3 POST /tts — 文字转语音
+// 3.3 POST /tts — 文字转语音（msedge-tts，免密钥；同文本磁盘缓存，断网可回放已合成句）
 app.post('/tts', async (req, res) => {
-  // TODO: 调云 TTS（讯飞/Edge-TTS），返回 base64 mp3/wav
-  const resp: TtsResponse = { audio: '' };
-  res.json(resp);
+  const { text, voice } = req.body as { text?: string; voice?: string };
+  if (!text?.trim()) {
+    res.status(400).json({ ok: false, error: 'text required' });
+    return;
+  }
+  try {
+    const { audio, mime } = await synthesize(text.trim(), voice);
+    const resp: TtsResponse = { audio, mime };
+    res.json(resp);
+  } catch (e) {
+    // 合成失败且无缓存：返空 audio，前端降级为 HUD 纯文字展示（契约 §5.5 不白屏）
+    console.warn('[tts] failed:', e instanceof Error ? e.message : e);
+    const resp: TtsResponse = { audio: '', mime: 'audio/mpeg' };
+    res.json(resp);
+  }
 });
 
 // 3.4 GET/POST /profile — 配置读写（写入即落盘）
@@ -76,6 +90,7 @@ app.get('/health', (_req, res) => {
   res.json({
     ok: true,
     llm: loadLlmConfig() !== null, // false = 未配 LLM_API_KEY，/candidates 恒走模板
+    tts: true, // msedge-tts 免密钥，始终可用（断网时靠缓存）
     uptime: Math.round(process.uptime()),
   });
 });
