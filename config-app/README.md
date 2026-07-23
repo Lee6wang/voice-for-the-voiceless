@@ -35,6 +35,14 @@ EXPO_PUBLIC_BACKEND_URL=http://192.168.1.10:8787 npm start
 
 不要把 API 密钥放进 `EXPO_PUBLIC_*`；客户端只保存 backend 地址。
 
+也可以在本目录创建不会提交到 Git 的 `.env.local`：
+
+```dotenv
+EXPO_PUBLIC_BACKEND_URL=http://<Mac 局域网 IP>:8787
+```
+
+Mac 更换 Wi-Fi 或热点后，局域网 IP 可能变化，需要同步修改该文件并重启 Expo。
+
 ## 当前功能
 
 - 启动时通过 `GET /profile?userId=demo` 读取已有配置

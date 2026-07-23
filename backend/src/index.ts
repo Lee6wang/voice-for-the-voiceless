@@ -64,4 +64,8 @@ app.post('/profile', (req, res) => {
 });
 
 const PORT = Number(process.env.PORT ?? 8787);
-app.listen(PORT, () => console.log(`[backend] listening on http://localhost:${PORT}`));
+const HOST = process.env.HOST ?? '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+  console.log(`[backend] listening on http://${HOST}:${PORT}`);
+});

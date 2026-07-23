@@ -12,12 +12,43 @@
 ```bash
 # 在仓库根执行一次
 npm install
-# 配置密钥
-cp .env.example backend/.env   # 填入 ASR/LLM/TTS 的 key
+# 当前 mock 无需密钥；接入云 API 后再创建 backend/.env
 # 起服务
 npm run dev:backend            # 或：npm --workspace backend run dev
 ```
-默认 `http://localhost:8787`。
+默认监听 `0.0.0.0:8787`：
+
+- Mac 本机访问：`http://localhost:8787`
+- Android Emulator 访问：`http://10.0.2.2:8787`
+- 同一局域网的手机/眼镜访问：`http://<Mac 局域网 IP>:8787`
+
+例如 Mac 当前地址是 `172.20.10.14`，设备端应填写：
+
+```text
+http://172.20.10.14:8787
+```
+
+启动前可用下面的命令查询 Wi-Fi 地址：
+
+```bash
+ipconfig getifaddr en0
+```
+
+如果局域网设备无法连接：
+
+1. 确认设备与 Mac 位于同一个 Wi-Fi/热点。
+2. 在设备浏览器打开
+   `http://<Mac IP>:8787/profile?userId=demo` 测试。
+3. macOS 弹出网络访问提示时，允许 Node 接收入站连接。
+4. 确认路由器没有开启“客户端隔离”。
+
+如只想允许本机访问，可覆盖监听地址：
+
+```bash
+HOST=127.0.0.1 npm run dev:backend
+```
+
+> 当前 Demo 接口没有鉴权且允许跨域，只适合可信局域网。不要设置公网端口映射，也不要直接暴露在公共 Wi-Fi。
 
 ## 待办（B）
 - [ ] `/candidates` 拼 prompt（注入 profile）+ 接云 LLM，解析出 4 条 ≤12 字
