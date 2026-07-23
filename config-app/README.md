@@ -1,24 +1,49 @@
 # config-app · 独立配置 App（B）
 
-React Native + Expo（TypeScript）。录入个性化配置（名字/常用语/语气/紧急语）→ 保存到 `backend /profile`，glasses-app 会读取。
+React Native + Expo（TypeScript）。录入名字、常用表达、语气与紧急表达，
+保存到 backend `/profile`，供 glasses-app 在会话开始时读取。
 
-> ⚠️ 本目录**不纳入根 npm workspaces**（Expo 自管依赖，避免 monorepo hoisting 问题）。单独安装运行。
+> 本目录不纳入根 npm workspaces，依赖与 lockfile 独立管理。
 
-## 初始化（首次）
+## 本地启动
+
+先在另一个终端启动仓库根目录的 backend：
+
 ```bash
-cd config-app
-# 在当前目录生成 Expo(TS) 工程；App.tsx 已提供，生成后用本目录的 App.tsx 覆盖它
-npx create-expo-app@latest . -t expo-template-blank-typescript
-# 覆盖后启动
-npx expo start        # 手机装 Expo Go 扫码即跑
+npm run dev:backend
 ```
 
-## 说明
-- `App.tsx`（已提供起步版）：一个配置表单，保存时 `POST BACKEND/profile`。
-- 后端地址 `BACKEND` 在 `App.tsx` 顶部，真机联调改成后端可达地址（同网 IP / 内网穿透）。
-- 字段结构对应 `@vftv/shared` 的 `UserProfile`；因本工程独立，采用内联同构定义（就一个结构）。若想共享类型，可配置 metro `watchFolders` 指向 `../shared`（可选，非必需）。
+再启动配置 App：
 
-## 待办（B）
-- [ ] 生成 Expo 工程并跑通表单
-- [ ] `POST /profile` 联调（与 backend）
-- [ ] userId 绑定（Demo 用固定 `demo` 即可；有余量再做二维码/登录）
+```bash
+cd config-app
+npm install
+npm run android
+```
+
+也可以执行 `npm start`，然后按 `a` 打开 Android Emulator。
+
+## 后端地址
+
+默认地址是 `http://10.0.2.2:8787`，适用于 Android Emulator 访问宿主 Mac。
+
+真机或远程后端通过 Expo 公共环境变量覆盖：
+
+```bash
+EXPO_PUBLIC_BACKEND_URL=http://192.168.1.10:8787 npm start
+```
+
+不要把 API 密钥放进 `EXPO_PUBLIC_*`；客户端只保存 backend 地址。
+
+## 当前功能
+
+- 启动时通过 `GET /profile?userId=demo` 读取已有配置
+- 编辑名字、常用表达、语气和紧急表达
+- 通过 `POST /profile` 保存并显示成功/失败状态
+- Demo 阶段固定使用 `userId=demo`
+
+## 下一步
+
+- [ ] 与真机联调后端地址
+- [ ] 增加表单输入校验
+- [ ] 有余量时再做二维码或登录绑定
