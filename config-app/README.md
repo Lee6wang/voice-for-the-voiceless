@@ -23,6 +23,26 @@ npm run android
 
 也可以执行 `npm start`，然后按 `a` 打开 Android Emulator。
 
+## Android Studio
+
+Node 通过 NVM 安装时，从 Finder 启动的 Android Studio 可能找不到 `node`，
+表现为 Gradle Sync 报错 `A problem occurred starting process 'command node'`。
+
+首次使用先生成仅保存在本机的原生工程：
+
+```bash
+npx expo prebuild --platform android --no-install
+```
+
+之后完全退出 Android Studio，再从本目录执行：
+
+```bash
+npm run studio
+```
+
+该命令会把当前终端的 Node 路径和 Android Studio 内置 JDK 显式传给 IDE。
+同步完成后，顶部会出现 `app` 运行配置。
+
 ## 后端地址
 
 默认地址是 `http://10.0.2.2:8787`，适用于 Android Emulator 访问宿主 Mac。
