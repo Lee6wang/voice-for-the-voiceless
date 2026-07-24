@@ -1,202 +1,444 @@
 <!doctype html>
-<html lang="zh">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>无声之声 · glasses-app</title>
-    <style>
-      :root { color-scheme: dark; }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        background: #101410;
-        color: #d7e8d7;
-        font-family: -apple-system, 'PingFang SC', sans-serif;
-        font-size: 17px;
-        line-height: 1.6;
-      }
-      .view { display: none; padding: 20px 16px 32px; max-width: 560px; margin: 0 auto; }
-      .view.active { display: block; }
-      h1 { font-size: 22px; margin: 0 0 4px; }
-      .sub { color: #8fae8f; font-size: 14px; margin: 0 0 16px; }
-      .chip {
-        display: inline-block; padding: 4px 12px; border-radius: 999px;
-        background: #1d2a1d; color: #7ce87c; font-size: 14px; margin-bottom: 12px;
-      }
-      .card {
-        background: #182018; border: 1px solid #2a3a2a; border-radius: 12px;
-        padding: 14px; margin-bottom: 14px;
-      }
-      .card h2 { font-size: 15px; color: #8fae8f; margin: 0 0 8px; font-weight: 600; }
-      #hud {
-        white-space: pre-wrap; font-family: ui-monospace, monospace;
-        color: #7ce87c; min-height: 96px; font-size: 15px;
-      }
-      .feature {
-        display: flex; justify-content: space-between; align-items: center;
-        padding: 10px 0; border-bottom: 1px solid #223022; font-size: 15px;
-      }
-      .feature:last-child { border-bottom: none; }
-      .tag { font-size: 12px; padding: 2px 8px; border-radius: 6px; white-space: nowrap; }
-      .tag.on { background: #1d3a1d; color: #7ce87c; }
-      .tag.soon { background: #2a2a1d; color: #b8b87c; }
-      button {
-        width: 100%; padding: 13px; border: none; border-radius: 10px;
-        background: #2f6b2f; color: #eaffea; font-size: 17px; margin-top: 8px;
-      }
-      button.ghost { background: #223022; color: #bfe8bf; }
-      label { display: block; margin: 14px 0 6px; color: #a8c8a8; font-size: 14px; }
-      input[type='text'], textarea {
-        width: 100%; padding: 11px; border-radius: 10px; border: 1px solid #2a3a2a;
-        background: #0e130e; color: #d7e8d7; font-size: 16px;
-      }
-      textarea { min-height: 96px; resize: vertical; }
-      .tones { display: flex; gap: 8px; }
-      .tones label {
-        flex: 1; margin: 0; text-align: center; padding: 10px 0;
-        border: 1px solid #2a3a2a; border-radius: 10px;
-        background: #0e130e; color: #d7e8d7; font-size: 15px;
-      }
-      .tones input { display: none; }
-      .tones label:has(input:checked) { background: #2f6b2f; color: #eaffea; border-color: #2f6b2f; }
-      .quick-btn {
-        display: block; width: 100%; text-align: left; background: #223022;
-        color: #d7e8d7; margin-top: 8px; padding: 12px; font-size: 16px;
-      }
-      .guide-row { display: flex; gap: 10px; padding: 5px 0; font-size: 15px; }
-      .guide-key { color: #7ce87c; white-space: nowrap; min-width: 7.5em; }
-      .check { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; color: #d7e8d7; font-size: 15px; }
-      .check input { width: 20px; height: 20px; accent-color: #2f6b2f; }
-      .scene-row { display: flex; gap: 8px; }
-      .scene-chip {
-        flex: 1; width: auto; margin-top: 0; padding: 10px 0; font-size: 15px;
-        background: #0e130e; border: 1px solid #2a3a2a; color: #d7e8d7; border-radius: 10px;
-      }
-      .scene-chip.active { background: #2f6b2f; color: #eaffea; border-color: #2f6b2f; }
-      #emergency-overlay {
-        position: fixed; inset: 0; z-index: 99; background: #c62828; color: #fff;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: 16px; text-align: center; padding: 24px;
-      }
-      #emergency-overlay[hidden] { display: none; }
-      .em-icon { font-size: 64px; animation: pulse 0.8s infinite; }
-      .em-text { font-size: 28px; font-weight: 700; }
-      .em-hint { font-size: 14px; opacity: 0.85; }
-      @keyframes pulse { 50% { opacity: 0.35; } }
-    </style>
+    <meta name="theme-color" content="#080b09" />
+    <title>无声之声</title>
+    <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <!-- 菜单页 -->
-    <main id="view-menu" class="view active">
-      <h1>无声之声</h1>
-      <p class="sub">帮你把话说出口的社交表达搭子</p>
-      <span class="chip" id="status">待机</span>
-
-      <!-- 场景预设：影响候选生成与快捷句（一键切换，存设置） -->
-      <section class="card">
-        <h2>场景（影响候选与快捷句）</h2>
-        <div class="scene-row">
-          <button class="scene-chip active" data-scene="default">通用</button>
-          <button class="scene-chip" data-scene="work">工作</button>
-          <button class="scene-chip" data-scene="dining">点餐</button>
-          <button class="scene-chip" data-scene="social">聚会</button>
+    <main id="view-menu" class="view view-menu active">
+      <header class="app-header">
+        <div class="brand" aria-label="无声之声">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32">
+              <path d="M7 17v-2M12 21V11M17 25V7M22 21V11M27 17v-2" />
+            </svg>
+          </span>
+          <span>
+            <strong>无声之声</strong>
+            <small>Voice for the Voiceless</small>
+          </span>
         </div>
-      </section>
+        <div class="header-actions">
+          <div class="connection-cluster" aria-label="设备与服务状态">
+            <span class="connection-pill" id="header-device" data-status="neutral">
+              <span class="connection-dot" aria-hidden="true"></span>
+              <span id="header-device-text">G2 检查中</span>
+            </span>
+            <span class="connection-pill" id="header-backend" data-status="neutral">
+              <span class="connection-dot" aria-hidden="true"></span>
+              <span id="header-backend-text">服务检查中</span>
+            </span>
+          </div>
+          <button id="btn-config" class="icon-button" type="button" aria-label="打开个性化配置">
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M12 15.25A3.25 3.25 0 1 0 12 8.75a3.25 3.25 0 0 0 0 6.5Z" />
+              <path d="M19 13.2v-2.4l-2-.7a7.4 7.4 0 0 0-.6-1.4l.9-1.9-1.7-1.7-1.9.9a7.4 7.4 0 0 0-1.4-.6L11.6 3H9.2l-.7 2a7.4 7.4 0 0 0-1.4.6l-1.9-.9-1.7 1.7.9 1.9a7.4 7.4 0 0 0-.6 1.4l-2 .7v2.4l2 .7c.1.5.3 1 .6 1.4l-.9 1.9 1.7 1.7 1.9-.9c.4.3.9.5 1.4.6l.7 2h2.4l.7-2c.5-.1 1-.3 1.4-.6l1.9.9 1.7-1.7-.9-1.9c.3-.4.5-.9.6-1.4l2-.7Z" />
+            </svg>
+          </button>
+        </div>
+      </header>
 
-      <!-- 30 秒上手（首启显示，看过不再弹） -->
-      <section class="card" id="onboard" hidden>
-        <h2>30 秒上手</h2>
-        <div class="guide-row"><span class="guide-key">轻点戒指</span><span>开始听对方说话</span></div>
-        <div class="guide-row"><span class="guide-key">上下滑动</span><span>在候选里挑一句</span></div>
-        <div class="guide-row"><span class="guide-key">再轻点</span><span>替你说出口</span></div>
-        <div class="guide-row"><span class="guide-key">双击戒指</span><span>换一批候选</span></div>
-        <div class="guide-row"><span class="guide-key">双击镜腿</span><span>紧急呼救</span></div>
-        <button id="btn-onboard-ok">知道了</button>
-      </section>
+      <div class="dashboard">
+        <section class="hero-card dashboard-hero" id="status-hero" data-state="IDLE" aria-live="polite">
+          <div class="hero-copy">
+            <span class="eyebrow" id="status-kicker">当前状态</span>
+            <h1 id="status">准备好了</h1>
+            <p id="status-detail">轻点 R1 戒指，开始聆听</p>
+          </div>
+          <div class="signal-orb" aria-hidden="true">
+            <span class="orb-ring orb-ring-outer"></span>
+            <span class="orb-ring orb-ring-inner"></span>
+            <span class="orb-core">
+              <i></i><i></i><i></i><i></i><i></i>
+            </span>
+          </div>
+          <div class="hero-foot">
+            <span><kbd>R1</kbd> <span id="status-action">轻点开始</span></span>
+            <span><kbd>G2</kbd> 镜腿双击求助</span>
+          </div>
+        </section>
 
-      <section class="card">
-        <h2>眼镜画面（实时镜像）</h2>
-        <div id="hud"></div>
-      </section>
+        <section class="panel context-panel dashboard-context">
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">对话上下文</span>
+              <h2>让表达更贴合当下</h2>
+            </div>
+          </div>
+          <div class="control-block">
+            <span class="control-label">当前场景</span>
+            <div class="segmented-control" aria-label="选择当前场景">
+              <button class="scene-chip active" type="button" data-scene="default">通用</button>
+              <button class="scene-chip" type="button" data-scene="work">工作</button>
+              <button class="scene-chip" type="button" data-scene="dining">点餐</button>
+              <button class="scene-chip" type="button" data-scene="social">聚会</button>
+            </div>
+          </div>
+          <label class="select-field" for="partner-select">
+            <span>对话对象</span>
+            <span class="select-wrap">
+              <select id="partner-select">
+                <option value="default">不指定</option>
+                <option value="stranger">陌生人</option>
+                <option value="friend">朋友</option>
+                <option value="family">家人</option>
+                <option value="senior">上级</option>
+                <option value="colleague">同事</option>
+                <option value="staff">服务员</option>
+              </select>
+              <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m6 8 4 4 4-4" /></svg>
+            </span>
+          </label>
+        </section>
 
-      <!-- 快捷句发声板：点按即说，眼镜没电/未戴时手机独立可用 -->
-      <section class="card" id="quick-card" hidden>
-        <h2>快捷句（点按即说）</h2>
-        <div id="quick-list"></div>
-      </section>
+        <section class="panel quick-panel dashboard-quick" id="quick-card" hidden>
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">手机直达</span>
+              <h2>快捷表达</h2>
+            </div>
+            <span class="panel-note">点按即说</span>
+          </div>
+          <div id="quick-list" class="quick-grid"></div>
+          <div id="quick-more-list" class="quick-grid quick-more-list" hidden></div>
+          <button id="btn-quick-more" class="text-button" type="button" hidden>
+            查看全部
+          </button>
+        </section>
 
-      <section class="card">
-        <h2>功能</h2>
-        <div class="feature"><span>应答模式 · 轻点戒指开始聆听</span><span class="tag on">可用</span></div>
-        <div class="feature"><span>紧急呼救 · 镜腿双击</span><span class="tag on">可用</span></div>
-        <div class="feature"><span>主动模式 · 常用意图轮盘</span><span class="tag soon">即将上线</span></div>
-      </section>
+        <section class="panel hud-panel dashboard-hud">
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">G2 实时预览</span>
+              <h2>眼镜画面</h2>
+            </div>
+            <span class="live-label"><i aria-hidden="true"></i> HUD</span>
+          </div>
+          <div class="g2-frame" aria-label="G2 HUD 实时镜像">
+            <div class="g2-sensor" aria-hidden="true"></div>
+            <div class="g2-screen">
+              <div class="screen-scan" aria-hidden="true"></div>
+              <div id="hud"></div>
+            </div>
+          </div>
+        </section>
 
-      <button id="btn-config">个性化配置</button>
+        <section class="panel modes-panel dashboard-modes">
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">操作方式</span>
+              <h2>三种表达模式</h2>
+            </div>
+          </div>
+          <div class="mode-grid">
+            <article class="mode-tile">
+              <span class="mode-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 3a4 4 0 0 0-4 4v4a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4Z" />
+                  <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" />
+                </svg>
+              </span>
+              <strong>应答</strong>
+              <span>轻点 R1 开始聆听</span>
+            </article>
+            <article class="mode-tile">
+              <span class="mode-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M5 6h14v10H8l-3 3V6Z" />
+                  <path d="M8 10h8M8 13h5" />
+                </svg>
+              </span>
+              <strong>主动</strong>
+              <span>双击 R1 打开短语</span>
+            </article>
+            <article class="mode-tile danger">
+              <span class="mode-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 3 2.8 19h18.4L12 3Z" />
+                  <path d="M12 9v4M12 16h.01" />
+                </svg>
+              </span>
+              <strong>紧急求助</strong>
+              <span>镜腿双击立即呼救</span>
+            </article>
+          </div>
+        </section>
+
+        <details class="panel diagnostics-panel dashboard-diagnostics" id="diagnostics">
+          <summary>
+            <span>
+              <span class="eyebrow">开发与联调</span>
+              <strong>设备与服务详情</strong>
+            </span>
+            <span class="summary-action">展开检查</span>
+          </summary>
+          <div class="diag-grid">
+            <span class="diag-label">运行环境</span><span class="diag-value" id="diag-hub">—</span>
+            <span class="diag-label">G2 连接</span><span class="diag-value" id="diag-device">—</span>
+            <span class="diag-label">Backend</span><span class="diag-value" id="diag-backend">—</span>
+            <span class="diag-label">能力</span><span class="diag-value" id="diag-capabilities">—</span>
+            <span class="diag-label">PCM</span><span class="diag-value" id="diag-pcm">—</span>
+            <span class="diag-label">耗时</span><span class="diag-value" id="diag-timing">—</span>
+            <span class="diag-label">候选来源</span><span class="diag-value" id="diag-origin">—</span>
+            <span class="diag-label">发声路径</span><span class="diag-value" id="diag-playback">—</span>
+            <span class="diag-label">最近错误</span><span class="diag-value" id="diag-error">无</span>
+          </div>
+          <button id="btn-health-retry" class="secondary-button" type="button">
+            重新检查 Backend
+          </button>
+        </details>
+      </div>
     </main>
 
-    <!-- 配置页 -->
-    <main id="view-config" class="view">
-      <h1>个性化配置</h1>
-      <p class="sub">让候选更像你自己说话；保存后立即生效</p>
+    <main id="view-config" class="view view-config">
+      <header class="config-header">
+        <button id="btn-back" class="icon-button" type="button" aria-label="返回首页">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+        <div>
+          <span class="eyebrow">个性化</span>
+          <h1>让表达更像你</h1>
+        </div>
+        <span class="save-state" id="config-save-state">已同步</span>
+      </header>
 
-      <label for="f-name">名字（自我介绍用）</label>
-      <input type="text" id="f-name" placeholder="例如：小李" />
-
-      <label for="f-phrases">常用语（每行一条，喂给候选生成）</label>
-      <textarea id="f-phrases" placeholder="我在忙，稍后回复你&#10;帮我带一杯冰美式"></textarea>
-
-      <label>语气</label>
-      <div class="tones">
-        <label><input type="radio" name="f-tone" value="gentle" /><span>温和</span></label>
-        <label><input type="radio" name="f-tone" value="plain" checked /><span>平实</span></label>
-        <label><input type="radio" name="f-tone" value="humor" /><span>幽默</span></label>
+      <div class="config-intro">
+        <p>所有设置仅保存在当前设备。展开需要修改的部分，保存后立即生效。</p>
       </div>
 
-      <label for="f-emergency">紧急呼救语（镜腿双击时朗读）</label>
-      <input type="text" id="f-emergency" placeholder="请帮帮我" />
+      <div class="settings-stack" id="config-form">
+        <details class="settings-section" id="section-profile" open>
+          <summary>
+            <span class="settings-number">01</span>
+            <span><strong>基础资料</strong><small>身份、表达偏好与语气</small></span>
+            <span class="summary-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="settings-body">
+            <div class="field-grid two-columns">
+              <label class="field" for="f-name">
+                <span>名字</span>
+                <input type="text" id="f-name" placeholder="例如：小李" />
+                <small>用于需要自我介绍的候选</small>
+              </label>
+              <label class="field" for="f-role">
+                <span>身份 / 职业</span>
+                <input type="text" id="f-role" placeholder="例如：学生 / 程序员" />
+                <small>帮助候选贴合你的日常语境</small>
+              </label>
+            </div>
 
-      <label for="f-voice">音色 ID（选填，留空用默认）</label>
-      <input type="text" id="f-voice" placeholder="default" />
+            <fieldset class="field-group">
+              <legend>表达困难</legend>
+              <p>可多选，候选会更省力、稳妥。</p>
+              <div class="choice-chips" id="f-challenges">
+                <label><input type="checkbox" name="f-challenge" value="社恐" /><span>社恐</span></label>
+                <label><input type="checkbox" name="f-challenge" value="口吃" /><span>口吃</span></label>
+                <label><input type="checkbox" name="f-challenge" value="发音不清" /><span>发音不清</span></label>
+                <label><input type="checkbox" name="f-challenge" value="反应慢" /><span>反应慢</span></label>
+                <label><input type="checkbox" name="f-challenge" value="易紧张" /><span>易紧张</span></label>
+              </div>
+              <div class="add-row">
+                <input type="text" id="f-challenge-input" placeholder="添加自定义困难，如怕冷场" />
+                <button type="button" id="btn-add-challenge" class="secondary-button compact">添加</button>
+              </div>
+            </fieldset>
 
-      <label>操作偏好</label>
-      <label class="check">
-        <input type="checkbox" id="f-twostep" checked />
-        <span>两步确认：候选选中后再点一下才说出（防误触）</span>
-      </label>
-      <label class="check">
-        <input type="checkbox" id="f-offline" />
-        <span>纯离线模式：不联网，候选用内置短语、发声用本机语音（隐私/无网可用）</span>
-      </label>
-      <label class="check">
-        <input type="checkbox" id="f-mirror" />
-        <span>手机镜像眼镜画面（默认关保隐私，演示时打开）</span>
-      </label>
-      <label class="check">
-        <input type="checkbox" id="f-bigtext" />
-        <span>大字模式：眼镜每屏只显 2 条候选，更易读（滑动翻页）</span>
-      </label>
+            <div class="field-grid two-columns">
+              <label class="field" for="f-interests">
+                <span>兴趣 / 擅长话题</span>
+                <textarea id="f-interests" placeholder="篮球&#10;科幻电影"></textarea>
+                <small>用于破冰和闲聊，每行一条</small>
+              </label>
+              <label class="field" for="f-avoid">
+                <span>避免的字眼 / 话题</span>
+                <textarea id="f-avoid" placeholder="例如：年龄&#10;敏感话题"></textarea>
+                <small>选填，每行一条</small>
+              </label>
+            </div>
 
-      <label>聆听时长</label>
-      <div class="tones">
-        <label><input type="radio" name="f-listen" value="3" /><span>3 秒</span></label>
-        <label><input type="radio" name="f-listen" value="4" checked /><span>4 秒</span></label>
-        <label><input type="radio" name="f-listen" value="5" /><span>5 秒</span></label>
+            <div class="field-grid two-columns">
+              <fieldset class="field-group compact-group">
+                <legend>语气</legend>
+                <div class="option-segments">
+                  <label><input type="radio" name="f-tone" value="gentle" /><span>温和</span></label>
+                  <label><input type="radio" name="f-tone" value="plain" checked /><span>平实</span></label>
+                  <label><input type="radio" name="f-tone" value="humor" /><span>幽默</span></label>
+                </div>
+              </fieldset>
+              <fieldset class="field-group compact-group">
+                <legend>候选简洁度</legend>
+                <div class="option-segments">
+                  <label><input type="radio" name="f-verbosity" value="normal" checked /><span>正常</span></label>
+                  <label><input type="radio" name="f-verbosity" value="terse" /><span>更简短</span></label>
+                </div>
+              </fieldset>
+            </div>
+          </div>
+        </details>
+
+        <details class="settings-section" id="section-phrases">
+          <summary>
+            <span class="settings-number">02</span>
+            <span><strong>表达语料</strong><small>常用语、场景与主动短语</small></span>
+            <span class="summary-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="settings-body">
+            <label class="field" for="f-phrases">
+              <span>常用语</span>
+              <textarea id="f-phrases" placeholder="我在忙，稍后回复你&#10;帮我带一杯冰美式"></textarea>
+              <small>每行一条，将优先进入快捷表达和候选生成</small>
+            </label>
+
+            <fieldset class="field-group">
+              <legend>场景短语包</legend>
+              <p>切到对应场景时自动加入候选和快捷表达。</p>
+              <div id="f-scene-phrases" class="scene-pack-grid">
+                <label class="scene-pack">
+                  <span>通用</span>
+                  <textarea data-scene="default" placeholder="不分场景都想叠加的短语"></textarea>
+                </label>
+                <label class="scene-pack">
+                  <span>工作</span>
+                  <textarea data-scene="work" placeholder="每行一条"></textarea>
+                </label>
+                <label class="scene-pack">
+                  <span>点餐</span>
+                  <textarea data-scene="dining" placeholder="每行一条"></textarea>
+                </label>
+                <label class="scene-pack">
+                  <span>聚会</span>
+                  <textarea data-scene="social" placeholder="每行一条"></textarea>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="field-group">
+              <legend>主动模式分组</legend>
+              <p>双击 R1 唤出，再次双击切换分组。</p>
+              <div id="f-active-groups" class="active-groups"></div>
+              <button type="button" id="btn-add-group" class="secondary-button add-group-button">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+                添加分组
+              </button>
+            </fieldset>
+          </div>
+        </details>
+
+        <details class="settings-section" id="section-device">
+          <summary>
+            <span class="settings-number">03</span>
+            <span><strong>设备与交互</strong><small>聆听、确认与显示方式</small></span>
+            <span class="summary-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="settings-body">
+            <fieldset class="field-group compact-group">
+              <legend>聆听时长</legend>
+              <div class="option-segments">
+                <label><input type="radio" name="f-listen" value="3" /><span>3 秒</span></label>
+                <label><input type="radio" name="f-listen" value="4" checked /><span>4 秒</span></label>
+                <label><input type="radio" name="f-listen" value="5" /><span>5 秒</span></label>
+              </div>
+            </fieldset>
+
+            <div class="toggle-list">
+              <label class="toggle-row">
+                <span><strong>两步确认</strong><small>候选选中后再点一下才说出，降低误触</small></span>
+                <input type="checkbox" id="f-twostep" checked />
+                <i aria-hidden="true"></i>
+              </label>
+              <label class="toggle-row">
+                <span><strong>手机镜像眼镜画面</strong><small>演示时开启，默认关闭以保护隐私</small></span>
+                <input type="checkbox" id="f-mirror" />
+                <i aria-hidden="true"></i>
+              </label>
+              <label class="toggle-row">
+                <span><strong>大字模式</strong><small>眼镜每屏只显示两条候选</small></span>
+                <input type="checkbox" id="f-bigtext" />
+                <i aria-hidden="true"></i>
+              </label>
+            </div>
+
+            <label class="field" for="f-voice">
+              <span>音色 ID</span>
+              <input type="text" id="f-voice" placeholder="default" />
+              <small>选填，留空时使用默认音色</small>
+            </label>
+          </div>
+        </details>
+
+        <details class="settings-section safety-section" id="section-safety">
+          <summary>
+            <span class="settings-number">04</span>
+            <span><strong>安全与隐私</strong><small>紧急呼救和不联网模式</small></span>
+            <span class="summary-chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="settings-body">
+            <label class="field" for="f-emergency">
+              <span>紧急呼救语</span>
+              <input type="text" id="f-emergency" placeholder="请帮帮我" />
+              <small>镜腿双击时顺序朗读两遍</small>
+            </label>
+
+            <label class="toggle-row privacy-toggle">
+              <span>
+                <strong>隐私快捷模式</strong>
+                <small>不采音、不联网，直接显示本地短语并使用本机语音</small>
+              </span>
+              <input type="checkbox" id="f-offline" />
+              <i aria-hidden="true"></i>
+            </label>
+          </div>
+        </details>
       </div>
 
-      <button id="btn-save">保存</button>
-      <button id="btn-back" class="ghost">返回</button>
-      <p id="save-msg" class="sub" style="min-height: 1.4em"></p>
+      <footer class="config-savebar">
+        <p id="save-msg" role="alert" aria-live="assertive">所有更改已保存</p>
+        <button id="btn-save" class="primary-button" type="button" disabled>保存更改</button>
+      </footer>
     </main>
 
-    <!-- 紧急呼救全屏警示（手机有彩色；点按任意处解除） -->
-    <div id="emergency-overlay" hidden>
-      <div class="em-icon">⚠️</div>
+    <div class="onboard-overlay" id="onboard" hidden role="dialog" aria-modal="true" aria-labelledby="onboard-title">
+      <section class="onboard-sheet">
+        <span class="sheet-handle" aria-hidden="true"></span>
+        <span class="eyebrow">30 秒上手</span>
+        <h2 id="onboard-title">三步完成一次表达</h2>
+        <ol class="onboard-steps">
+          <li><span>1</span><div><strong>轻点 R1</strong><small>开始聆听，再点一次提前结束</small></div></li>
+          <li><span>2</span><div><strong>上下滑动</strong><small>在四条候选中选择想说的话</small></div></li>
+          <li><span>3</span><div><strong>再次轻点</strong><small>确认后由手机替你说出口</small></div></li>
+        </ol>
+        <div class="onboard-safety">
+          <strong>需要帮助？</strong>
+          <span>双击镜腿可从任何状态发起紧急呼救</span>
+        </div>
+        <button id="btn-onboard-ok" class="primary-button" type="button">开始使用</button>
+      </section>
+    </div>
+
+    <div id="emergency-overlay" hidden role="alertdialog" aria-modal="true" aria-labelledby="em-text">
+      <div class="emergency-aura" aria-hidden="true"></div>
+      <span class="em-icon" aria-hidden="true">
+        <svg viewBox="0 0 48 48">
+          <path d="M24 5 4 41h40L24 5Z" />
+          <path d="M24 17v10M24 33h.01" />
+        </svg>
+      </span>
+      <span class="eyebrow">紧急呼救进行中</span>
       <div class="em-text" id="em-text"></div>
-      <div class="em-hint">点按任意位置解除</div>
+      <div class="em-hint">点按任意位置，立即停止并退出</div>
+    </div>
+
+    <div id="save-toast" class="toast" hidden role="status" aria-live="polite">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></svg>
+      <span>设置已保存</span>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

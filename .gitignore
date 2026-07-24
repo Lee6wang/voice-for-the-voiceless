@@ -6,6 +6,7 @@
 *.apk
 *.ehp
 *.ehpk
+glasses-app/.demo/
 
 # ── Python（host 主机端）──
 __pycache__/

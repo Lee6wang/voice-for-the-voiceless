@@ -38,11 +38,21 @@ export type RawInput =
   | 'double_tap' //    IDLE: 唤主动模式 ; CANDIDATES: 换一批
   | 'temple_double_tap'; // 任意状态: 紧急呼救
 
-/** 用户个性化配置 */
+/** 用户个性化配置（结构化字段全部可选、加性；B 端不接也不报错） */
 export interface UserProfile {
   userId: string;
   /** 用于候选里的自我介绍 */
   name?: string;
+  /** 身份/职业，如「学生」「程序员」「店主」，帮候选贴合身份 */
+  role?: string;
+  /** 表达困难类型，如「社恐」「口吃」「发音不清」「反应慢」「易紧张」，让候选更省力稳妥 */
+  challenges?: string[];
+  /** 兴趣/擅长话题，用于破冰闲聊 */
+  interests?: string[];
+  /** 避免的字眼/话题，候选须回避 */
+  avoidWords?: string[];
+  /** 简洁度偏好：terse 更短、normal 正常 */
+  verbosity?: 'terse' | 'normal';
   /** 常用语，喂进 LLM prompt */
   commonPhrases: string[];
   /** 语气偏好 */
@@ -52,6 +62,10 @@ export interface UserProfile {
   /** 紧急呼救要喊的话 */
   emergencyText?: string;
 }
+
+/** 交互模式（reply=应答 / active=主动开口 / emergency=紧急）。
+ *  注意：emergency 保持固定文本广播、不经 /candidates（离线/低延迟 fail-safe）。 */
+export type InteractionMode = 'reply' | 'active' | 'emergency';
 
 // ---- backend HTTP 接口的请求/响应（见接口契约 §3）----
 
@@ -72,6 +86,8 @@ export interface SceneContext {
   timeOfDay?: string;
   /** 场景标签，如「餐厅」；插件手选，或 backend 按经纬度反查 POI 得出 */
   scene?: string;
+  /** 对话对象/关系，如「陌生人」「朋友」「家人」「上级」「同事」「服务员」 */
+  partner?: string;
   /** 经纬度（scene 缺失时 backend 可反查） */
   lat?: number;
   lon?: number;
@@ -91,14 +107,18 @@ export interface CandidatesRequest {
   profile: UserProfile;
   /** 换一批时传，避免重复 */
   exclude?: string[];
-  /** 场景上下文（时间/地点），候选会贴合情境 */
+  /** 场景上下文（时间/地点/对象），候选会贴合情境 */
   context?: SceneContext;
+  /** 交互模式，缺省按 'reply'（emergency 不会走此接口） */
+  mode?: InteractionMode;
   /** 多轮上下文（最近几轮对话，可选、加性；backend 消费为可选增强） */
   history?: ConversationTurn[];
 }
 export interface CandidatesResponse {
   turnId: string;
   candidates: Candidate[];
+  /** 候选由真实 LLM 或 backend 模板库生成；旧 backend 可不返回。 */
+  source?: 'llm' | 'template';
 }
 
 export interface TtsRequest {
@@ -110,6 +130,15 @@ export interface TtsResponse {
   audio: string;
   /** 音频 MIME，如 'audio/mpeg'；可选，缺省按 mp3 处理（向后兼容） */
   mime?: string;
+}
+
+/** GET /health 响应。 */
+export interface HealthResponse {
+  ok: boolean;
+  llm: boolean;
+  tts: boolean;
+  asr: boolean;
+  uptime: number;
 }
 
 /** 候选恒为 4 条 */

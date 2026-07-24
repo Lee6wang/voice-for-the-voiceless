@@ -9,6 +9,6 @@
   "supported_languages": ["zh", "en"],
   "permissions": [
     { "name": "g2-microphone", "desc": "聆听对方说话以生成候选回复" },
-    { "name": "network", "desc": "调用薄后端进行候选生成/ASR/TTS", "whitelist": ["http://10.80.1.10:8787", "http://localhost:8787"] }
+    { "name": "network", "desc": "调用薄后端进行候选生成/ASR/TTS", "whitelist": ["http://localhost:8787"] }
   ]
 }

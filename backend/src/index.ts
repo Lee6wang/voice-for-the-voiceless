@@ -10,14 +10,12 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import {
-  pickTemplateCandidates,
   type AsrResponse,
   type CandidatesRequest,
-  type CandidatesResponse,
   type TtsResponse,
   type UserProfile,
 } from '@vftv/shared';
-import { generateCandidates } from './candidates';
+import { createCandidatesResponse } from './candidate-response';
 import { asrReady, transcribe, warmupAsr } from './providers/asr';
 import { loadLlmConfig } from './providers/llm';
 import { prewarmPhrases, synthesize } from './providers/tts';
@@ -57,18 +55,8 @@ app.post('/asr', async (req, res) => {
 
 // 3.2 POST /candidates — 生成候选（核心）
 app.post('/candidates', async (req, res) => {
-  const { turnId, heardText, profile, exclude = [], context } = req.body as CandidatesRequest;
-  try {
-    // 真实 LLM：注入 profile.name/commonPhrases/tone + 场景上下文（时间/地点），输出经确定性清洗
-    const candidates = await generateCandidates(heardText, profile, exclude, context);
-    const resp: CandidatesResponse = { turnId, candidates };
-    res.json(resp);
-  } catch (e) {
-    // ① backend 侧兜底：LLM 未配置/超时/报错 → 模板库
-    console.warn('[candidates] fallback to templates:', e instanceof Error ? e.message : e);
-    const resp: CandidatesResponse = { turnId, candidates: pickTemplateCandidates(heardText, exclude) };
-    res.json(resp);
-  }
+  // 真实 LLM 注入 profile/场景/对象/历史；失败由共享模板库兜底并显式标注 source。
+  res.json(await createCandidatesResponse(req.body as CandidatesRequest));
 });
 
 // 3.3 POST /tts — 文字转语音（msedge-tts，免密钥；同文本磁盘缓存，断网可回放已合成句）

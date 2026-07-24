@@ -16,6 +16,7 @@ import {
   type EvenHubEvent,
 } from '@evenrealities/even_hub_sdk';
 import type { RawInput } from '@vftv/shared';
+import { PlaybackController, type PlaybackResult } from './playback';
 
 const HUD_CONTAINER_ID = 1;
 const HUD_CONTAINER_NAME = 'hud';
@@ -26,6 +27,8 @@ const WELCOME_TEXT = '无声之声 · 轻点戒指开始聆听';
 
 let bridge: EvenAppBridge | null = null;
 let hasBridge = false;
+const playback = new PlaybackController();
+export type HubMode = 'bridge' | 'browser';
 
 // 采音缓冲：只在 LISTENING 窗口内累积 PCM（防回声——SPEAKING 时不开麦）
 let capturing = false;
@@ -37,11 +40,11 @@ let pcmChunks: Uint8Array[] = [];
  * 或存在 flutter_inappwebview 宿主 handler；两者皆无才当纯浏览器，回退 DOM+键盘。
  * 注意：SDK 的 bridge 单例在 DOM ready 时就会自标记 ready（纯浏览器也 resolve），不能单靠它判定。
  */
-export async function initHub(): Promise<void> {
+export async function initHub(): Promise<HubMode> {
   const b = await withTimeout(waitForEvenAppBridge(), BRIDGE_TIMEOUT_MS).catch(() => null);
   if (!b) {
     hasBridge = false;
-    return;
+    return 'browser';
   }
 
   // 建启动页：一个全屏文本容器承载 HUD，初始内容直接放欢迎文字。
@@ -55,6 +58,7 @@ export async function initHub(): Promise<void> {
     // 纯浏览器（无 Flutter 宿主）：回退 DOM+键盘开发模式
     hasBridge = false;
   }
+  return hasBridge ? 'bridge' : 'browser';
 }
 
 /** 建/重建 HUD 启动页（初始化与 BLE 重连后恢复共用）。 */
@@ -352,41 +356,32 @@ const DEBUG_TTS = false;
  * SDK 无音频输出 API（眼镜也无扬声器），走 WebView 浏览器 Audio——即 Day0 命脉验证点。
  * 调试期：传入空串且 DEBUG_TTS 时，播一段运行时合成的测试音（走相同的 new Audio(base64) 通路）。
  */
-export async function playAudioBase64(b64: string, mime = 'audio/mp3'): Promise<boolean> {
+export async function playAudioBase64(
+  b64: string,
+  mime = 'audio/mp3',
+  onStarted?: () => void,
+): Promise<PlaybackResult> {
   let data = b64;
   let useMime = mime;
   if (!data && DEBUG_TTS) {
     data = makeBeepWavBase64();
     useMime = 'audio/wav';
   }
-  if (!data) return false;
-  const audio = new Audio(`data:${useMime};base64,${data}`);
-  try {
-    await audio.play();
-    return true;
-  } catch {
-    return false; // 自动播放策略/解码失败：交由上层 speakFallback 兜底
-  }
+  if (!data) return 'failed';
+  return playback.playAudio(data, useMime, onStarted);
 }
 
 /**
  * TTS 降级链第二级：浏览器内置 speechSynthesis 朗读文本（免费、离线可用）。
  * 不可用/失败时静默返回，不阻塞流程。
  */
-export function speakFallback(text: string): Promise<void> {
-  return new Promise((resolve) => {
-    try {
-      if (!('speechSynthesis' in window)) return resolve();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'zh-CN';
-      u.onend = () => resolve();
-      u.onerror = () => resolve();
-      window.speechSynthesis.speak(u);
-      setTimeout(resolve, 8000); // 安全网：最长 8s 兜底返回
-    } catch {
-      resolve();
-    }
-  });
+export function speakFallback(text: string, onStarted?: () => void): Promise<PlaybackResult> {
+  return playback.speakText(text, onStarted);
+}
+
+/** 立即停止手机上的 MP3 与 Web Speech，并让等待中的播音流程以 cancelled 结束。 */
+export function stopPlayback(): void {
+  playback.stop();
 }
 
 /** 运行时合成一段正弦 WAV（单声道 16bit）并返回 base64，用于验证扬声器通路。 */

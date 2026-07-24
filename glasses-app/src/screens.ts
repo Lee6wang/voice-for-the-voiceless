@@ -46,9 +46,13 @@ export function thinkingScreen(): PageSpec {
 /** 候选态：状态栏显「听到…+ n/总」，正文四条（或大字每屏 2 条），底部操作提示。 */
 export function candidatesScreen(set: CandidateSet, bigText = false, armed = false): PageSpec {
   const isActive = set.turnId.startsWith('active_');
+  const isLocal = set.turnId.startsWith('privacy_') || set.turnId.startsWith('local_');
   const badge = ['①', '②', '③', '④'];
   const total = set.candidates.length;
-  const heard = isActive ? set.heardText : `听到：${set.heardText || '（未识别，可换一批）'}`;
+  const heard =
+    isActive || isLocal
+      ? set.heardText
+      : `听到：${set.heardText || '（未识别，可换一批）'}`;
   const status = `${heard}　${set.highlightIndex + 1}/${total}`;
 
   let lines: string[];

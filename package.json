@@ -13,6 +13,9 @@
   },
   "scripts": {
     "dev:backend": "npm --workspace backend run dev",
-    "dev:glasses": "npm --workspace glasses-app run dev"
+    "dev:glasses": "npm --workspace glasses-app run dev",
+    "test": "npm --workspace backend test && npm --workspace glasses-app test",
+    "typecheck": "tsc --noEmit -p backend/tsconfig.json && tsc --noEmit -p glasses-app/tsconfig.json",
+    "demo:pack": "node scripts/demo-pack.mjs"
   }
 }

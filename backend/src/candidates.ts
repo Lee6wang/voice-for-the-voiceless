@@ -2,10 +2,12 @@
 // 完成标准见 AGENTS.md §10：恰好 4 条、去重、≤12 字、失败自动回退模板库。
 
 import {
-  pickTemplateCandidates,
   CANDIDATE_COUNT,
   CANDIDATE_MAX_LEN,
+  normalizeCandidateTexts,
   type Candidate,
+  type ConversationTurn,
+  type InteractionMode,
   type SceneContext,
   type UserProfile,
 } from '@vftv/shared';
@@ -18,8 +20,8 @@ const TONE_LABEL: Record<NonNullable<UserProfile['tone']>, string> = {
   humor: '轻松幽默，偶尔俏皮但不失礼',
 };
 
-/** 拼 system prompt：让 LLM「用这个用户的方式」说话 */
-function buildSystemPrompt(profile: UserProfile): string {
+/** 拼 system prompt：让 LLM「用这个用户的方式」说话（导出供单测） */
+export function buildSystemPrompt(profile: UserProfile): string {
   const lines = [
     '你替一位不方便开口说话的用户生成口头回复候选。',
     `严格输出 JSON 字符串数组，恰好 ${CANDIDATE_COUNT} 条，不要输出其他任何内容。`,
@@ -27,24 +29,56 @@ function buildSystemPrompt(profile: UserProfile): string {
     '4 条必须覆盖不同意图方向（如：肯定 / 委婉拒绝 / 追问澄清 / 缓冲拖延），供用户临场挑选。',
   ];
   if (profile.name) lines.push(`用户名字：${profile.name}（对方问称呼时可用）。`);
+  if (profile.role) lines.push(`用户身份：${profile.role}（候选可贴合这个身份）。`);
   if (profile.tone) lines.push(`说话风格：${TONE_LABEL[profile.tone]}。`);
+  if (profile.verbosity === 'terse') {
+    lines.push('用户偏好极简：候选尽量更短（几个字即可），能省则省。');
+  }
+  if (profile.challenges && profile.challenges.length > 0) {
+    lines.push(
+      `用户有表达困难（${profile.challenges.join('、')}）：候选要更省力、稳妥、易开口，避免绕口或需要长时间组织的句子。`,
+    );
+  }
+  if (profile.interests && profile.interests.length > 0) {
+    lines.push(`用户感兴趣/擅长的话题：${profile.interests.join('、')}（破冰闲聊时可自然带入）。`);
+  }
   if (profile.commonPhrases.length > 0) {
     lines.push(`用户平时的常用表达（优先模仿其用词习惯）：${profile.commonPhrases.join('、')}。`);
+  }
+  if (profile.avoidWords && profile.avoidWords.length > 0) {
+    lines.push(`禁止出现以下字眼或话题：${profile.avoidWords.join('、')}。`);
   }
   return lines.join('\n');
 }
 
-function buildUserPrompt(heardText: string, exclude: string[], context?: SceneContext): string {
+export function buildUserPrompt(
+  heardText: string,
+  exclude: string[],
+  context?: SceneContext,
+  mode: InteractionMode = 'reply',
+  history?: ConversationTurn[],
+): string {
   const lines: string[] = [];
   const scenery: string[] = [];
   if (context?.localTime) {
     scenery.push(`现在是 ${context.localTime}${context.timeOfDay ? `（${context.timeOfDay}）` : ''}`);
   }
   if (context?.scene) scenery.push(`用户正在${context.scene}`);
+  if (context?.partner) scenery.push(`正在和${context.partner}对话`);
   if (scenery.length > 0) {
-    lines.push(`情境：${scenery.join('，')}。候选要贴合这个情境（如餐厅里可以点菜/要水/买单），但不要生硬提及时间地点。`);
+    lines.push(`情境：${scenery.join('，')}。候选要贴合这个情境（如餐厅里可以点菜/要水/买单，对上级更得体），但不要生硬提及时间地点。`);
   }
-  lines.push(`对方刚刚说：「${heardText}」`, '请生成回复候选。');
+  // 多轮上下文：最近≤3轮，帮候选连贯（可选增强，缺了就当没有）
+  if (history && history.length > 0) {
+    const recent = history.slice(-3).map((t) => `对方说「${t.heard}」，你回「${t.said}」`);
+    lines.push(`上文（由近及远之前几轮）：${recent.join('；')}。`);
+  }
+  if (mode === 'active') {
+    // 主动模式：用户想主动开口，heardText 承载的是意图/话题而非对方发言
+    lines.push(`用户想主动开口，围绕「${heardText}」这个意图，给可直接说出口的候选。`);
+  } else {
+    lines.push(`对方刚刚说：「${heardText}」`, '请生成回复候选。');
+  }
   if (exclude.length > 0) lines.push(`这些已经展示过，禁止重复或近似：${exclude.join('、')}`);
   return lines.join('\n');
 }
@@ -104,25 +138,8 @@ export function sanitizeCandidates(
   heardText: string,
   exclude: string[],
 ): Candidate[] {
-  const seen = new Set<string>(exclude);
-  const cleaned: string[] = [];
-  for (const t of texts) {
-    const text = t.replace(/^["'「『]+|["'」』]+$/g, '').trim();
-    if (!text || text.length > CANDIDATE_MAX_LEN || seen.has(text)) continue;
-    seen.add(text);
-    cleaned.push(text);
-    if (cleaned.length === CANDIDATE_COUNT) break;
-  }
-  if (cleaned.length < CANDIDATE_COUNT) {
-    for (const c of pickTemplateCandidates(heardText, [...seen])) {
-      if (seen.has(c.text)) continue;
-      seen.add(c.text);
-      cleaned.push(c.text);
-      if (cleaned.length === CANDIDATE_COUNT) break;
-    }
-  }
-  let seq = Date.now() % 100000;
-  return cleaned.slice(0, CANDIDATE_COUNT).map((text) => ({ id: `llm_${seq++}`, text }));
+  const stripped = texts.map((text) => text.replace(/^["'「『]+|["'」』]+$/g, '').trim());
+  return normalizeCandidateTexts(stripped, heardText, { exclude, idPrefix: 'llm' });
 }
 
 /**
@@ -134,6 +151,8 @@ export async function generateCandidates(
   profile: UserProfile,
   exclude: string[],
   context?: SceneContext,
+  mode: InteractionMode = 'reply',
+  history?: ConversationTurn[],
 ): Promise<Candidate[]> {
   const cfg = loadLlmConfig();
   if (!cfg) throw new Error('LLM_API_KEY not configured');
@@ -141,7 +160,11 @@ export async function generateCandidates(
   if (context && !context.scene && context.lat != null && context.lon != null) {
     context = { ...context, scene: (await resolveScene(context.lat, context.lon)) ?? undefined };
   }
-  const raw = await chatComplete(cfg, buildSystemPrompt(profile), buildUserPrompt(heardText, exclude, context));
+  const raw = await chatComplete(
+    cfg,
+    buildSystemPrompt(profile),
+    buildUserPrompt(heardText, exclude, context, mode, history),
+  );
   const candidates = sanitizeCandidates(parseCandidateTexts(raw), heardText, exclude);
   if (candidates.length !== CANDIDATE_COUNT) throw new Error('sanitize produced wrong count');
   return candidates;
