@@ -84,7 +84,7 @@ function hostHandlerPresent(): boolean {
   return typeof w.flutter_inappwebview?.callHandler === 'function';
 }
 
-/** 写 HUD：有 bridge 走无闪局部更新 textContainerUpgrade，否则写 #hud（开发可视）。 */
+/** 写 HUD：有 bridge 走无闪局部更新 textContainerUpgrade；同时始终镜像到手机 #hud（asr 模板同款）。 */
 export function hudWrite(content: string): void {
   if (hasBridge && bridge) {
     void bridge.textContainerUpgrade(
@@ -94,10 +94,37 @@ export function hudWrite(content: string): void {
         content,
       }),
     );
-    return;
   }
+  // 手机端实时镜像眼镜画面；纯浏览器下则是唯一显示
   const el = document.getElementById('hud');
   if (el) el.textContent = content;
+}
+
+// ---- 本地 KVS（配置持久化，双模式）----
+
+/** 读 KVS：有 bridge 走 SDK 本地存储，纯浏览器回退 window.localStorage。 */
+export async function kvsGet(key: string): Promise<string | null> {
+  if (hasBridge && bridge) {
+    try {
+      return (await bridge.getLocalStorage(key)) ?? null;
+    } catch {
+      return null;
+    }
+  }
+  return window.localStorage.getItem(key);
+}
+
+/** 写 KVS：有 bridge 走 SDK 本地存储，失败/纯浏览器回退 window.localStorage。 */
+export async function kvsSet(key: string, value: string): Promise<void> {
+  if (hasBridge && bridge) {
+    try {
+      await bridge.setLocalStorage(key, value);
+      return;
+    } catch {
+      /* 回退 localStorage */
+    }
+  }
+  window.localStorage.setItem(key, value);
 }
 
 /** 临时调试开关：真机排查事件用，验完改回 false。 */
@@ -147,14 +174,27 @@ const DEBUG_AUDIO = false;
 
 /**
  * 采音：开麦累积 PCM，ms 后关麦，返回 base64（喂 backend /asr）。
+ * - 可提前结束：聆听中再次 tap 调 stopCapture()（给用户控制感）。
+ * - onTick：每个心跳回调已用时长，供 HUD 画倒计时进度条。
  * 健壮性：开麦失败/卡住（如未授麦克风权限）不阻塞流程——直接返回空串，
  * 上层 ASR 拿不到文字会走候选兜底，不会卡在「聆听中」。
  * 无 bridge（纯浏览器）也返回空串。
  */
-export async function capturePcm(ms: number): Promise<string> {
+let stopCaptureRequested = false;
+
+/** 提前结束当前采音窗口（聆听中再次 tap 触发）。 */
+export function stopCapture(): void {
+  stopCaptureRequested = true;
+}
+
+export async function capturePcm(
+  ms: number,
+  onTick?: (elapsedMs: number, totalMs: number) => void,
+): Promise<string> {
   if (!hasBridge || !bridge) return '';
   pcmChunks = [];
   capturing = true;
+  stopCaptureRequested = false;
   // 开麦带超时：未授权/卡住时不阻塞，返回空串让流程继续到候选兜底
   const ok = await withTimeout(bridge.audioControl(true, AudioInputSource.Glasses), 1500).catch(
     () => false,
@@ -167,7 +207,13 @@ export async function capturePcm(ms: number): Promise<string> {
     }
     return '';
   }
-  await sleep(ms);
+  const TICK = 200;
+  let elapsed = 0;
+  while (elapsed < ms && !stopCaptureRequested) {
+    await sleep(TICK);
+    elapsed += TICK;
+    onTick?.(elapsed, ms);
+  }
   await bridge.audioControl(false).catch(() => {});
   capturing = false;
   if (DEBUG_AUDIO) {
@@ -182,21 +228,44 @@ export async function capturePcm(ms: number): Promise<string> {
 const DEBUG_TTS = false;
 
 /**
- * 播 base64 音频到手机扬声器。
+ * 播 base64 音频到手机扬声器，返回是否成功开播（供上层降级到 speakFallback）。
  * SDK 无音频输出 API（眼镜也无扬声器），走 WebView 浏览器 Audio——即 Day0 命脉验证点。
  * 调试期：传入空串且 DEBUG_TTS 时，播一段运行时合成的测试音（走相同的 new Audio(base64) 通路）。
  */
-export async function playAudioBase64(b64: string, mime = 'audio/mp3'): Promise<void> {
+export async function playAudioBase64(b64: string, mime = 'audio/mp3'): Promise<boolean> {
   let data = b64;
   let useMime = mime;
   if (!data && DEBUG_TTS) {
     data = makeBeepWavBase64();
     useMime = 'audio/wav';
   }
-  if (!data) return;
+  if (!data) return false;
   const audio = new Audio(`data:${useMime};base64,${data}`);
-  await audio.play().catch(() => {
-    /* 自动播放策略/断网：交由上层（预录 WAV）兜底 */
+  try {
+    await audio.play();
+    return true;
+  } catch {
+    return false; // 自动播放策略/解码失败：交由上层 speakFallback 兜底
+  }
+}
+
+/**
+ * TTS 降级链第二级：浏览器内置 speechSynthesis 朗读文本（免费、离线可用）。
+ * 不可用/失败时静默返回，不阻塞流程。
+ */
+export function speakFallback(text: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      if (!('speechSynthesis' in window)) return resolve();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN';
+      u.onend = () => resolve();
+      u.onerror = () => resolve();
+      window.speechSynthesis.speak(u);
+      setTimeout(resolve, 8000); // 安全网：最长 8s 兜底返回
+    } catch {
+      resolve();
+    }
   });
 }
 
