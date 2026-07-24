@@ -24,13 +24,13 @@ import {
 import {
   bumpUsage,
   capturePcm,
-  hudWrite,
   initHub,
   kvsGet,
   kvsSet,
   loadUsage,
   onInput,
   playAudioBase64,
+  renderPage,
   setMirror,
   speakFallback,
   stopCapture,
@@ -47,12 +47,20 @@ import {
   type AppSettings,
   type SceneId,
 } from './ui';
+import {
+  candidatesScreen,
+  confirmedScreen,
+  emergencyScreen,
+  idleScreen,
+  listeningScreen,
+  speakingScreen,
+  thinkingScreen,
+} from './screens';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8787';
 const PROFILE_KEY = 'profile';
 const SETTINGS_KEY = 'settings';
 const ONBOARD_KEY = 'onboarded';
-const IDLE_HINT = '无声之声 · 轻点戒指开始聆听';
 
 /** 场景短语包：叠加在用户常用语上，影响候选生成与快捷句（不改契约，B 零改动） */
 const SCENE_PHRASES: Record<SceneId, string[]> = {
@@ -125,7 +133,7 @@ function armWatchdog() {
       flowId++; // 丢弃迟到结果
       stopCapture();
       setState('IDLE');
-      renderHUD('没听清，轻点戒指再试一次');
+      renderPage(idleScreen('没听清，轻点戒指再试一次'));
     }
   }, 10000);
 }
@@ -145,14 +153,14 @@ async function startListening() {
   const id = ++flowId;
   setState('LISTENING');
   armWatchdog();
-  renderHUD(listenBar(0));
+  renderPage(listeningScreen(0, listenMs()));
   try {
     const audio = await captureAudio(listenMs(), (elapsed, total) => {
-      if (id === flowId && state === 'LISTENING') renderHUD(listenBar(elapsed, total));
+      if (id === flowId && state === 'LISTENING') renderPage(listeningScreen(elapsed, total));
     });
     if (id !== flowId) return; // 已被看门狗/新流程接管
     setState('THINKING');
-    renderHUD('💭 思考中…');
+    renderPage(thinkingScreen());
     const heardText = await asr(audio);
     if (id !== flowId) return;
     const turnId = `t_${Date.now()}`;
@@ -166,18 +174,13 @@ async function startListening() {
     // 任一环抛错都回得来，不让用户以为设备坏了
     if (id !== flowId) return;
     setState('IDLE');
-    renderHUD('出了点问题，轻点戒指再试一次');
+    renderPage(idleScreen('出了点问题，轻点戒指再试一次'));
   } finally {
     if (id === flowId) clearWatchdog();
   }
 }
 
-/** 聆听倒计时进度条（控制感：能看到进度、可提前结束） */
-function listenBar(elapsedMs: number, totalMs = listenMs()): string {
-  const n = 10;
-  const filled = Math.min(n, Math.round((elapsedMs / totalMs) * n));
-  return `🎧 聆听中 ${'█'.repeat(filled)}${'━'.repeat(n - filled)}\n（再点一下提前结束）`;
-}
+/** 聆听倒计时已移到 screens.listeningScreen（进度条） */
 
 /** 请求候选：离线模式直走模板库；否则先 backend，不可达→插件端兜底。profile 注入场景短语。 */
 async function getCandidates(turnId: string, heardText: string, exclude: string[] = []) {
@@ -211,17 +214,17 @@ async function confirmAndSpeak() {
   const turn = current;
   bumpUsage(chosen.text); // 频次学习：选过的下次排前
   setState('SPEAKING');
-  renderHUD('🔊 正在替你说…');
+  renderPage(speakingScreen(chosen.text));
   await speak(chosen.text);
   // 多轮上下文：只记应答模式的真实对话（主动模式 turnId 以 active_ 开头，不计入）
   if (!turn.turnId.startsWith('active_')) {
     history.push({ heard: turn.heardText, said: chosen.text });
     if (history.length > 3) history.shift();
   }
-  renderHUD(`✓ 已替你说：${chosen.text}`);
+  renderPage(confirmedScreen(chosen.text));
   await sleepMs(2000);
   setState('IDLE');
-  renderHUD(IDLE_HINT);
+  renderPage(idleScreen());
 }
 
 // ---- 输入事件（语义随状态而变，见接口契约 §2）----
@@ -291,15 +294,14 @@ async function emergency() {
   showEmergency(text, () => {
     emergencyActive = false; // 手机点按解除，停止后续重复
   });
-  const frames = [`██ 紧急呼救 ██\n${text}`, `⚠️ 紧急呼救 ⚠️\n${text}`];
   for (let i = 0; i < 2 && emergencyActive; i++) {
-    renderHUD(frames[i % 2]);
+    renderPage(emergencyScreen(text, i % 2 === 0));
     await speak(text);
   }
   emergencyActive = false;
   hideEmergency();
   setState('IDLE');
-  renderHUD(IDLE_HINT);
+  renderPage(idleScreen());
 }
 
 /** 手机端状态 chip 文案（跟随状态机） */
@@ -395,33 +397,8 @@ async function speak(text: string) {
   if (!played) await speakFallback(text);
 }
 
-function renderHUD(text: string) {
-  hudWrite(text);
-}
-
 function renderCandidates(set: CandidateSet) {
-  const isActive = set.turnId.startsWith('active_');
-  const context = isActive ? set.heardText : `听到：${set.heardText}`;
-  const total = set.candidates.length;
-  const header = `候选 ${set.highlightIndex + 1}/${total} · ${context}`;
-  const footer = armed ? '\n再点一下说出 ✓' : '';
-
-  // 大字模式：只显以高亮为中心的 2 条窗口（滑动翻页）；否则四条全显
-  if (settings.bigText) {
-    const start = Math.floor(set.highlightIndex / 2) * 2; // 以 2 为步的页
-    const win = set.candidates
-      .map((c, i) => ({ c, i }))
-      .slice(start, start + 2)
-      .map(({ c, i }) => `${i === set.highlightIndex ? '▶ ' : '  '}${c.text}`)
-      .join('\n\n'); // 多留白，更易读
-    hudWrite(`${header}\n\n${win}${footer}`);
-    return;
-  }
-
-  const items = set.candidates
-    .map((c, i) => `${i === set.highlightIndex ? '▶ ' : '  '}${c.text}`)
-    .join('\n');
-  hudWrite(`${header}\n${items}${footer}`);
+  renderPage(candidatesScreen(set, settings.bigText, armed));
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -495,5 +472,5 @@ initHub().then(async () => {
     setStatus(connected ? '已重新连接' : '眼镜已断开，重连中…');
   });
   onInput(handleInput); // SDK 事件 + 键盘（开发期）统一入口
-  renderHUD(IDLE_HINT);
+  renderPage(idleScreen());
 });

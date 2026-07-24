@@ -93,7 +93,8 @@ export function watchDeviceStatus(cb: (connected: boolean) => void): void {
   b.onDeviceStatusChanged((status) => {
     const connected = status.isConnected();
     if (connected) {
-      void createHudPage(b, WELCOME_TEXT); // 重连后恢复 HUD
+      void createHudPage(b, WELCOME_TEXT); // 重连后重建启动页
+      resetScreen(); // 下一次 renderPage 强制重建多分区屏
     }
     cb(connected);
   });
@@ -131,6 +132,66 @@ export function hudWrite(content: string): void {
   // 手机端实时镜像眼镜画面；纯浏览器下则是唯一显示
   const el = document.getElementById('hud');
   if (el) el.textContent = content;
+}
+
+// ---- 屏幕渲染层（单容器多行排版：真机上 rebuild 新增容器不渲染，故全部写同一容器）----
+// 分区感靠分隔线/留白在同一文本容器内实现；全程 textContainerUpgrade（无闪，也不依赖多容器）。
+
+/** 一个文本分区（位置/尺寸/边框仅用于排序与语义，单容器模式下不作真实定位） */
+export interface ZoneSpec {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 边框灰阶（单容器模式下仅作“是否状态栏”提示） */
+  border?: number;
+  content: string;
+}
+
+/** 一屏：多个分区（按 y 自上而下） */
+export interface PageSpec {
+  zones: ZoneSpec[];
+}
+
+/** 把多分区拼成单容器文本：状态栏（首区）下加分隔线，末区（提示）前留空行。 */
+function composeScreen(spec: PageSpec): string {
+  const zones = [...spec.zones].sort((a, b) => a.y - b.y);
+  if (zones.length === 1) return zones[0].content;
+  const parts: string[] = [];
+  zones.forEach((z, i) => {
+    if (i === 1) parts.push('─'.repeat(18)); // 状态栏与正文之间的分隔线
+    if (i === zones.length - 1 && zones.length > 2) parts.push(''); // 提示栏前留白
+    parts.push(z.content);
+  });
+  return parts.join('\n');
+}
+
+/**
+ * 渲染一屏：全部写入启动时已声明的单一容器（id=1），走 textContainerUpgrade（无闪）。
+ * 真机实测：rebuildPageContainer 新增的容器不渲染，故不用多容器。
+ * 无 bridge（纯浏览器）/镜像开：同文本写 #hud。
+ */
+export function renderPage(spec: PageSpec): void {
+  const content = composeScreen(spec);
+  if (hasBridge && bridge) {
+    void bridge.textContainerUpgrade(
+      new TextContainerUpgrade({
+        containerID: HUD_CONTAINER_ID,
+        containerName: HUD_CONTAINER_NAME,
+        content,
+      }),
+    );
+    if (!mirrorHudEnabled) return; // 镜像关：不同步到手机（保隐私）
+  }
+  const el = document.getElementById('hud');
+  if (el) el.textContent = content;
+}
+
+/** 保留接口（单容器模式下无需重建，空实现；供 BLE 重连回调调用）。 */
+export function resetScreen(): void {
+  /* 单容器模式：下一次 renderPage 直接 upgrade，无需重建 */
 }
 
 // ---- 本地 KVS（配置持久化，双模式）----
