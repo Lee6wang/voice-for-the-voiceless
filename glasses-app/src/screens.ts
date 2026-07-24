@@ -27,7 +27,7 @@ function frame(status: string, body: string, hint: string): PageSpec {
 
 /** 待机：主标题 + 引导 + 操作提示。 */
 export function idleScreen(subtitle = '轻点戒指 · 开始聆听'): PageSpec {
-  return frame('无声之声', `\n${subtitle}`, '双击=常用语　·　镜腿双击=紧急呼救');
+  return frame('无声之声', `\n${subtitle}`, '双击=快捷表达 · 镜腿双击=紧急呼救');
 }
 
 /** 聆听中：进度条（走无闪 upgrade，200ms tick 不重建）。 */
@@ -67,7 +67,8 @@ export function candidatesScreen(set: CandidateSet, bigText = false, armed = fal
       i === set.highlightIndex ? `❯ ${badge[i] ?? ''} ${c.text}` : `　${badge[i] ?? ''} ${c.text}`,
     );
   }
-  const hint = armed ? '再点一下·说出所选 ✓' : '滑动选择　·　点按说出　·　双击换一批';
+  const refreshHint = set.turnId.startsWith('active_') ? '双击换一组' : '双击换一批';
+  const hint = armed ? '再点一下·说出所选 ✓' : `滑动选择　·　点按说出　·　${refreshHint}`;
   return frame(status, lines.join('\n'), hint);
 }
 

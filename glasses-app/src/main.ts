@@ -835,12 +835,23 @@ function openActiveMode(): void {
   void showActiveGroup();
 }
 
-function activeGroups(): { name: string; phrases: string[] }[] {
+function activeGroups(): { name: string; phrases: string[]; useLlm: boolean }[] {
   const common = effectivePhrases();
   const custom = settings.activeGroups
     .filter((group) => group.phrases.length > 0)
-    .map((group) => ({ name: group.name || '未命名', phrases: group.phrases }));
-  return common.length ? [{ name: '常用', phrases: common }, ...custom] : custom;
+    .filter((group) => {
+      if (!common.length || group.id !== 'preset_basic') return true;
+      const commonSet = new Set(common);
+      return !group.phrases.every((phrase) => commonSet.has(phrase));
+    })
+    .map((group) => ({
+      name: group.name || '未命名',
+      phrases: group.phrases,
+      useLlm: !group.id.startsWith('preset_'),
+    }));
+  return common.length
+    ? [{ name: '常用', phrases: common, useLlm: false }, ...custom]
+    : custom;
 }
 
 async function showActiveGroup(): Promise<void> {
@@ -859,7 +870,7 @@ async function showActiveGroup(): Promise<void> {
   });
   current = {
     turnId,
-    heardText: `主动 · ${group.name}（双击换组）`,
+    heardText: `快捷 · ${group.name}（双击换组）`,
     candidates: sortByUsage(staticCandidates),
     highlightIndex: 0,
   };
@@ -868,7 +879,7 @@ async function showActiveGroup(): Promise<void> {
   updateDiagnostics({ candidateOrigin: 'active-phrase', lastError: undefined });
   renderCandidates(current);
 
-  if (!settings.offlineMode && group.name !== '常用') {
+  if (!settings.offlineMode && group.useLlm) {
     const intent = `${group.name}：${group.phrases.join('、')}`;
     try {
       const generated = await getCandidates(
