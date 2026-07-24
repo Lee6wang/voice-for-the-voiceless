@@ -13,7 +13,7 @@
 | 输入 | 💍 Even R1 戒指 | swipe 导航 / tap 确认 / double-tap 换批（镜腿 double-tap 紧急）|
 | 大脑 | 📱 Even Hub 插件（TS，跑在手机上） | 收 PCM/事件 → 调云 API → 推候选回 HUD → 手机扬声器外放 TTS |
 | 配置 | 📱 插件手机页 | 名字/常用语/语气等个性化 → 存 Even Hub 本地 KVS |
-| 后端 | 💻 Demo Mac / 可部署服务 | 本地 SenseVoice ASR + LLM 密钥代理 + Edge TTS 缓存 |
+| 后端 | 💻 Demo Mac / 可部署服务 | 本地 SenseVoice ASR + 持久化 Candidate Agent + Edge TTS 缓存 |
 
 > 当前黑客松 Demo 的 backend 跑在同一热点内的 Mac，因此 Mac **仍在演示链路里**；未来部署为稳定 HTTPS 服务后才可移除。完整方案见 [docs/无声之声-项目方案.md](docs/无声之声-项目方案.md)，模块协议见 [docs/接口契约.md](docs/接口契约.md)。
 
@@ -24,7 +24,7 @@
 ├── content/       内容与运营：小红书 Build in Public、对外文案（C）
 ├── shared/        接口契约单一真相源：共享类型 + 模板库（glasses-app 与 backend 共用）
 ├── glasses-app/   单插件 · TS + Even Hub SDK：手机端配置/菜单 + 眼镜 HUD/交互（A）
-└── backend/       云后端 · Node/TS：密钥代理 + ASR/LLM/TTS 编排（B）
+└── backend/       云后端 · Node/TS：ASR/LLM/TTS + SQLite 记忆 Agent（B）
 ```
 根为 npm workspaces monorepo（shared/backend/glasses-app）。
 

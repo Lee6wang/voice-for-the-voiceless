@@ -313,7 +313,9 @@ export function renderDiagnostics(d: DiagnosticsSnapshot): void {
   setText(
     'diag-capabilities',
     d.health
-      ? `ASR ${flag(d.health.asr)} · LLM ${flag(d.health.llm)} · TTS ${flag(d.health.tts)}`
+      ? `ASR ${flag(d.health.asr)} · LLM ${flag(d.health.llm)} · TTS ${flag(d.health.tts)}${
+          d.health.memory == null ? '' : ` · 记忆 ${flag(d.health.memory)}`
+        }`
       : '—',
   );
   const rate =
@@ -477,7 +479,7 @@ export function initUi(opts: {
       showValidationIssue(validationIssue);
       return;
     }
-    const nextProfile = readForm();
+    const nextProfile = readForm(opts.profile.userId);
     const nextSettings = readSettings();
     opts.onSave(nextProfile, nextSettings);
     setFormDirty(false);
@@ -895,7 +897,7 @@ function addCustomChallengeChip(value: string, checked = true): void {
   box.appendChild(label);
 }
 
-function readForm(): UserProfile {
+function readForm(userId: string): UserProfile {
   const tone = document.querySelector<HTMLInputElement>('input[name="f-tone"]:checked')
     ?.value as UserProfile['tone'];
   const verbosity = document.querySelector<HTMLInputElement>('input[name="f-verbosity"]:checked')
@@ -904,7 +906,7 @@ function readForm(): UserProfile {
     document.querySelectorAll<HTMLInputElement>('input[name="f-challenge"]:checked'),
   ).map((cb) => cb.value);
   return {
-    userId: 'demo', // 单设备本地存储，固定值即可（契约 §4）
+    userId,
     name: getValue('f-name').trim() || undefined,
     role: getValue('f-role').trim() || undefined,
     challenges: challenges.length ? challenges : undefined,

@@ -1,13 +1,21 @@
 # backend · 薄云后端（B）
 
-配置存储 + AI 能力编排。Even Hub 插件只调用这里，**API 密钥只在本服务的 `.env`，绝不进仓库**。
+配置存储 + 受约束 Candidate Agent。Even Hub 插件只调用这里，**API 密钥只在本服务的 `.env`，绝不进仓库**。
 
 ## 接口（详见 `../docs/接口契约.md` §3）
 - `POST /asr` — sherpa-onnx + SenseVoice 离线语音识别
-- `POST /candidates` — OpenAI 兼容 LLM 生成个性化候选，失败走模板库
+- `POST /candidates` — 召回会话/行为记忆后生成个性化候选，失败走模板库
+- `POST /agent/feedback` — 幂等记录候选反馈；只有成功播放形成长期偏好
 - `POST /tts` — msedge-tts 中文语音合成，带磁盘缓存
 - `GET/POST /profile` — JSON 文件持久化的个性化配置
 - `GET /health` — 检查 backend、LLM 配置和 ASR 模型状态
+
+Agent 记忆保存在 `backend/data/memory.sqlite`（已忽略，不进 Git）：
+
+- 原始音频不保存。
+- 短期会话转写默认保留 24 小时，可用 `MEMORY_SESSION_TTL_HOURS` 调整。
+- 长期偏好只从用户成功说出的短句、模式和粗粒度场景/对象派生。
+- 每轮最多一次 LLM 调用；记忆故障不影响原模板兜底。
 
 ## 启动
 ```bash
@@ -63,6 +71,9 @@ HOST=127.0.0.1 npm run dev:backend
 - [x] `/tts` 返回 base64 MP3，并缓存已生成语音
 - [x] profile 保存到 `backend/data/profiles.json`
 - [x] 保存/启动时预生成紧急表达与常用表达的 TTS 缓存
+- [x] SQLite 持久化最近会话和成功行为记忆
+- [x] 行为反馈 eventId 幂等，未完成播放不会被学习
+- [x] 记忆按场景/对象/模式过滤后注入 Candidate Agent
 - [ ] 用 Even G2 输出的真实 PCM 做 ASR 兼容性和延迟测试
 - [ ] 验证 Even Hub 插件在手机控制页面播放返回的 MP3
 - [ ] 添加完整接口集成测试与请求并发保护

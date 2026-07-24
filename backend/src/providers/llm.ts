@@ -7,17 +7,24 @@ export interface LlmConfig {
   apiKey: string;
   model: string;
   timeoutMs: number;
+  /** Provider 支持时显式控制思考模式；未配置则完全不发送该字段。 */
+  thinking?: 'enabled' | 'disabled';
 }
 
 /** 从环境变量读配置；未配置 apiKey 时返回 null（调用方走模板兜底） */
 export function loadLlmConfig(): LlmConfig | null {
   const apiKey = process.env.LLM_API_KEY;
   if (!apiKey) return null;
+  const thinking =
+    process.env.LLM_THINKING === 'enabled' || process.env.LLM_THINKING === 'disabled'
+      ? process.env.LLM_THINKING
+      : undefined;
   return {
     baseUrl: process.env.LLM_BASE_URL ?? 'https://api.deepseek.com/v1',
     apiKey,
-    model: process.env.LLM_MODEL ?? 'deepseek-chat',
+    model: process.env.LLM_MODEL ?? 'deepseek-v4-flash',
     timeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 2500),
+    thinking,
   };
 }
 
@@ -47,6 +54,7 @@ export async function chatComplete(
         ],
         temperature: 0.7,
         max_tokens: 200,
+        ...(cfg.thinking ? { thinking: { type: cfg.thinking } } : {}),
       }),
       signal: ctrl.signal,
     });

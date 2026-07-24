@@ -6,6 +6,7 @@ Even G2 眼镜插件（跑在手机上）：采 4 麦 PCM、HUD 渲染候选、R
 - `src/main.ts`：状态机 + push-to-listen + 双层兜底调用；只管状态机与云编排。
 - `src/hub.ts`：Even Hub SDK 适配层（采音/HUD/输入/播音）。**双模式**——有 Even bridge（Even App/模拟器）走真实 SDK；纯浏览器自动回退键盘(Enter/↑/↓/空格/Esc)+DOM，`npm run dev:glasses` 即可开发联调。
 - `src/playback.ts`：手机单实例播音控制器；等待真正播完，支持紧急取消与 Web Speech 降级。
+- `src/feedback.ts`：构造幂等 `played` 反馈；主流程用本地 outbox 重试，隐私/离线/本地兜底不会上报。
 - `app.json`：插件清单，已声明 `g2-microphone` 权限。
 
 ## 启动
@@ -31,6 +32,7 @@ npm --workspace glasses-app test      # 播音与设置迁移单测
 - [x] 候选在客户端再次规范化为恰好 4 条、去重且 ≤12 Unicode 字符
 - [x] 隐私快捷模式不采音、不联网，直接显示本地短语
 - [x] 手机设备检查卡显示 bridge/backend/PCM/耗时/降级来源
+- [x] 单设备稳定 ID + 每次启动 sessionId；仅成功播音后上报长期学习信号
 - [ ] **真机**：验 PCM 字节率、事件映射、完整播音、紧急抢占与端到端延迟
 
 > 浏览器开发的后端地址默认 `http://localhost:8787`。真机包不要手改 IP，
