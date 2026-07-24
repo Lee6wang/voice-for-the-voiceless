@@ -45,7 +45,21 @@ export async function initHub(): Promise<void> {
   }
 
   // 建启动页：一个全屏文本容器承载 HUD，初始内容直接放欢迎文字。
-  const result = await b
+  const result = await createHudPage(b, WELCOME_TEXT);
+
+  // 真实宿主：建页成功 或 存在 flutter 宿主 handler（真机上两者应同时成立）
+  if (result === StartUpPageCreateResult.success || hostHandlerPresent()) {
+    bridge = b;
+    hasBridge = true;
+  } else {
+    // 纯浏览器（无 Flutter 宿主）：回退 DOM+键盘开发模式
+    hasBridge = false;
+  }
+}
+
+/** 建/重建 HUD 启动页（初始化与 BLE 重连后恢复共用）。 */
+async function createHudPage(b: EvenAppBridge, content: string): Promise<StartUpPageCreateResult> {
+  return b
     .createStartUpPageContainer(
       new CreateStartUpPageContainer({
         containerTotalNum: 1,
@@ -60,22 +74,29 @@ export async function initHub(): Promise<void> {
             paddingLength: 8,
             containerID: HUD_CONTAINER_ID,
             containerName: HUD_CONTAINER_NAME,
-            content: WELCOME_TEXT,
+            content,
             isEventCapture: 1,
           }),
         ],
       }),
     )
     .catch(() => StartUpPageCreateResult.invalid);
+}
 
-  // 真实宿主：建页成功 或 存在 flutter 宿主 handler（真机上两者应同时成立）
-  if (result === StartUpPageCreateResult.success || hostHandlerPresent()) {
-    bridge = b;
-    hasBridge = true;
-  } else {
-    // 纯浏览器（无 Flutter 宿主）：回退 DOM+键盘开发模式
-    hasBridge = false;
-  }
+/**
+ * BLE 断连守护：监听设备状态，断连时回调通知上层（手机提示），
+ * 重连后自动重建启动页容器恢复 HUD。纯浏览器下无操作。
+ */
+export function watchDeviceStatus(cb: (connected: boolean) => void): void {
+  if (!hasBridge || !bridge) return;
+  const b = bridge;
+  b.onDeviceStatusChanged((status) => {
+    const connected = status.isConnected();
+    if (connected) {
+      void createHudPage(b, WELCOME_TEXT); // 重连后恢复 HUD
+    }
+    cb(connected);
+  });
 }
 
 /** 是否存在 Flutter 宿主的 callHandler（真机/App WebView 才有，纯浏览器没有）。 */
@@ -84,7 +105,18 @@ function hostHandlerPresent(): boolean {
   return typeof w.flutter_inappwebview?.callHandler === 'function';
 }
 
-/** 写 HUD：有 bridge 走无闪局部更新 textContainerUpgrade；同时始终镜像到手机 #hud（asr 模板同款）。 */
+/** 手机镜像开关（仅影响真机模式；纯浏览器下 #hud 是唯一显示，恒开）。 */
+let mirrorHudEnabled = false;
+
+export function setMirror(on: boolean): void {
+  mirrorHudEnabled = on;
+  if (hasBridge && !on) {
+    const el = document.getElementById('hud');
+    if (el) el.textContent = '（镜像已关闭，可在配置页开启）';
+  }
+}
+
+/** 写 HUD：有 bridge 走无闪局部更新 textContainerUpgrade；手机 #hud 镜像受开关控制（隐私）。 */
 export function hudWrite(content: string): void {
   if (hasBridge && bridge) {
     void bridge.textContainerUpgrade(
@@ -94,6 +126,7 @@ export function hudWrite(content: string): void {
         content,
       }),
     );
+    if (!mirrorHudEnabled) return; // 镜像关：不同步到手机（保隐私）
   }
   // 手机端实时镜像眼镜画面；纯浏览器下则是唯一显示
   const el = document.getElementById('hud');

@@ -26,8 +26,10 @@ import {
   kvsSet,
   onInput,
   playAudioBase64,
+  setMirror,
   speakFallback,
   stopCapture,
+  watchDeviceStatus,
 } from './hub';
 import {
   DEFAULT_SETTINGS,
@@ -37,14 +39,30 @@ import {
   setStatus,
   showEmergency,
   type AppSettings,
+  type SceneId,
 } from './ui';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8787';
 const PROFILE_KEY = 'profile';
 const SETTINGS_KEY = 'settings';
 const ONBOARD_KEY = 'onboarded';
-const LISTEN_MS = 4000;
 const IDLE_HINT = '无声之声 · 轻点戒指开始聆听';
+
+/** 场景短语包：叠加在用户常用语上，影响候选生成与快捷句（不改契约，B 零改动） */
+const SCENE_PHRASES: Record<SceneId, string[]> = {
+  default: [],
+  work: ['我先记一下，稍后回复你', '这个我需要确认一下', '可以发我文字吗', '我们约个时间细聊'],
+  dining: ['请给我一杯温水', '我要这个，谢谢', '请少辣，谢谢', '麻烦帮我打包'],
+  social: ['很高兴见到你', '你先说，我在听', '我去下洗手间', '今天很开心，先走啦'],
+};
+
+/** 主动模式分组（双击戒指唤出，复用候选选择机制：swipe 选/tap 说/double 换组） */
+const ACTIVE_GROUPS: { name: string; phrases: string[] }[] = [
+  { name: '打招呼', phrases: ['你好，很高兴认识你', '早上好', '好久不见', '回头见'] },
+  { name: '需求', phrases: ['请帮我一下', '请给我一杯水', '我想休息一下', '请再说一遍'] },
+  { name: '缓冲', phrases: ['等我一下', '容我想想', '我在听', '稍后回复你'] },
+  { name: '告别', phrases: ['我先失陪一下', '今天先到这', '谢谢你的理解', '我们下次再聊'] },
+];
 
 let state: UiState = 'IDLE';
 let profile: UserProfile = { userId: 'demo', commonPhrases: [] };
@@ -53,6 +71,17 @@ let current: CandidateSet | null = null;
 let armed = false; // 两步确认：候选已锁定，再 tap 才说出
 let flowId = 0; // 会话令牌：看门狗复位后丢弃迟到的旧流程结果
 let emergencyActive = false;
+let activeGroup = 0; // 主动模式当前分组
+
+/** 当前生效的常用语：用户自定义 + 场景短语包（去重） */
+function effectivePhrases(): string[] {
+  return [...new Set([...profile.commonPhrases, ...SCENE_PHRASES[settings.scene]])];
+}
+
+/** 聆听时长（可配置 3/4/5 秒） */
+function listenMs(): number {
+  return settings.listenSeconds * 1000;
+}
 
 // ---- 看门狗：LISTENING/THINKING 卡住 10s 强制复位（坏了也回得来）----
 let watchdog: number | undefined;
@@ -86,8 +115,8 @@ async function startListening() {
   armWatchdog();
   renderHUD(listenBar(0));
   try {
-    const audio = await captureAudio(LISTEN_MS, (elapsed) => {
-      if (id === flowId && state === 'LISTENING') renderHUD(listenBar(elapsed));
+    const audio = await captureAudio(listenMs(), (elapsed, total) => {
+      if (id === flowId && state === 'LISTENING') renderHUD(listenBar(elapsed, total));
     });
     if (id !== flowId) return; // 已被看门狗/新流程接管
     setState('THINKING');
@@ -112,16 +141,18 @@ async function startListening() {
 }
 
 /** 聆听倒计时进度条（控制感：能看到进度、可提前结束） */
-function listenBar(elapsedMs: number): string {
+function listenBar(elapsedMs: number, totalMs = listenMs()): string {
   const n = 10;
-  const filled = Math.min(n, Math.round((elapsedMs / LISTEN_MS) * n));
+  const filled = Math.min(n, Math.round((elapsedMs / totalMs) * n));
   return `🎧 聆听中 ${'█'.repeat(filled)}${'━'.repeat(n - filled)}\n（再点一下提前结束）`;
 }
 
-/** 请求候选：先走 backend；backend/网络不可达 → 插件端模板库兜底 */
+/** 请求候选：离线模式直走模板库；否则先 backend，不可达→插件端兜底。profile 注入场景短语。 */
 async function getCandidates(turnId: string, heardText: string, exclude: string[] = []) {
+  if (settings.offlineMode) return pickTemplateCandidates(heardText, exclude); // 隐私/无网：不联网
   try {
-    const body: CandidatesRequest = { turnId, heardText, profile, exclude };
+    const profileForRequest: UserProfile = { ...profile, commonPhrases: effectivePhrases() };
+    const body: CandidatesRequest = { turnId, heardText, profile: profileForRequest, exclude };
     const r = await fetch(`${BACKEND}/candidates`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -190,6 +221,12 @@ function move(delta: number) {
 async function refresh() {
   if (!current) return;
   armed = false;
+  // 主动模式：double-tap 换下一组（不请求后端）
+  if (current.turnId.startsWith('active_')) {
+    activeGroup++;
+    showActiveGroup();
+    return;
+  }
   const seen = current.candidates.map((c) => c.text);
   current.candidates = await getCandidates(current.turnId, current.heardText, seen);
   current.highlightIndex = 0;
@@ -273,6 +310,7 @@ async function captureAudio(
 }
 
 async function asr(audio: string): Promise<string> {
+  if (settings.offlineMode) return ''; // 离线模式：音频不出设备，不上传
   // 经 backend 代理调云 ASR
   try {
     const body: AsrRequest = { audio, final: true };
@@ -290,18 +328,20 @@ async function asr(audio: string): Promise<string> {
 async function speak(text: string) {
   // 防回声由「仅 LISTENING 窗口开麦、SPEAKING 期间不开麦」保证，无需守卫标志位
   let audio = '';
-  try {
-    const body: TtsRequest = { text, voice: profile.voice };
-    const r = await fetch(`${BACKEND}/tts`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    audio = ((await r.json()) as TtsResponse).audio ?? '';
-  } catch {
-    /* 断网/无后端：audio 保持空，走降级链 */
+  if (!settings.offlineMode) {
+    try {
+      const body: TtsRequest = { text, voice: profile.voice };
+      const r = await fetch(`${BACKEND}/tts`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      audio = ((await r.json()) as TtsResponse).audio ?? '';
+    } catch {
+      /* 断网/无后端：audio 保持空，走降级链 */
+    }
   }
-  // 降级链：云 TTS → 浏览器 speechSynthesis（免费/离线）→ 静默
+  // 降级链：云 TTS → 浏览器 speechSynthesis（免费/离线）→ 静默；离线模式直走第二级
   const played = await playAudioBase64(audio);
   if (!played) await speakFallback(text);
 }
@@ -311,7 +351,9 @@ function renderHUD(text: string) {
 }
 
 function renderCandidates(set: CandidateSet) {
-  const header = `候选 ${set.highlightIndex + 1}/${set.candidates.length} · 听到：${set.heardText}`;
+  const isActive = set.turnId.startsWith('active_');
+  const context = isActive ? set.heardText : `听到：${set.heardText}`;
+  const header = `候选 ${set.highlightIndex + 1}/${set.candidates.length} · ${context}`;
   const items = set.candidates
     .map((c, i) => `${i === set.highlightIndex ? '▶ ' : '  '}${c.text}`)
     .join('\n');
@@ -323,8 +365,29 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** 主动模式：IDLE 双击唤出分组短语（常用/打招呼/需求/缓冲/告别），复用候选选择机制 */
 function openActiveMode() {
-  // P1：主动模式意图轮盘（吃/喝/如厕/疼痛/呼叫），有余量再做
+  activeGroup = 0;
+  showActiveGroup();
+}
+
+function activeGroups(): { name: string; phrases: string[] }[] {
+  const common = effectivePhrases();
+  return common.length ? [{ name: '常用', phrases: common }, ...ACTIVE_GROUPS] : [...ACTIVE_GROUPS];
+}
+
+function showActiveGroup() {
+  const groups = activeGroups();
+  const g = groups[activeGroup % groups.length];
+  current = {
+    turnId: `active_${Date.now()}`,
+    heardText: `主动 · ${g.name}（双击换组）`,
+    candidates: g.phrases.slice(0, 4).map((text, i) => ({ id: `a${activeGroup}_${i}`, text })),
+    highlightIndex: 0,
+  };
+  armed = false;
+  setState('CANDIDATES');
+  renderCandidates(current);
 }
 
 // 启动：等 bridge（超时回退纯浏览器）→ 读 KVS 配置/设置 → 初始化手机 UI → 注册输入 → 首屏
@@ -341,7 +404,13 @@ initHub().then(async () => {
       settings = s;
       void saveProfile(p);
       void saveSettings(s);
-      renderQuickPhrases(p.commonPhrases); // 快捷句板跟着常用语更新
+      setMirror(s.mirrorHud);
+      renderQuickPhrases(effectivePhrases()); // 快捷句板跟随常用语+场景更新
+    },
+    onSceneChange: (scene) => {
+      settings = { ...settings, scene };
+      void saveSettings(settings);
+      renderQuickPhrases(effectivePhrases());
     },
     onSpeakPhrase: async (text) => {
       // 快捷句发声板：手机点按即说（眼镜没电/未戴时独立可用）
@@ -351,6 +420,12 @@ initHub().then(async () => {
       setState('IDLE');
     },
     onOnboarded: () => void kvsSet(ONBOARD_KEY, '1'),
+  });
+  setMirror(settings.mirrorHud); // 镜像默认关（隐私），演示时配置页打开
+  renderQuickPhrases(effectivePhrases());
+  watchDeviceStatus((connected) => {
+    // BLE 断连守护：手机提示；重连后 hub 会自动重建 HUD
+    setStatus(connected ? '已重新连接' : '眼镜已断开，重连中…');
   });
   onInput(handleInput); // SDK 事件 + 键盘（开发期）统一入口
   renderHUD(IDLE_HINT);

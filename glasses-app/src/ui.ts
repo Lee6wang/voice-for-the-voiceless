@@ -6,13 +6,30 @@ import type { UserProfile } from '@vftv/shared';
 
 type ViewName = 'menu' | 'config';
 
+/** 场景预设 id（影响候选生成与快捷句的短语包） */
+export type SceneId = 'default' | 'work' | 'dining' | 'social';
+
 /** 本地操作偏好（存 KVS 'settings'，不进 UserProfile，不影响契约/B） */
 export interface AppSettings {
   /** 两步确认：候选选中后再点一下才说出（防误触，默认开） */
   twoStepConfirm: boolean;
+  /** 纯离线模式：不联网，候选走内置模板库、发声走本机语音（隐私/无网） */
+  offlineMode: boolean;
+  /** 手机镜像眼镜画面（默认关保隐私，演示时开；纯浏览器下恒显示） */
+  mirrorHud: boolean;
+  /** 聆听时长（秒） */
+  listenSeconds: 3 | 4 | 5;
+  /** 当前场景 */
+  scene: SceneId;
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { twoStepConfirm: true };
+export const DEFAULT_SETTINGS: AppSettings = {
+  twoStepConfirm: true,
+  offlineMode: false,
+  mirrorHud: false,
+  listenSeconds: 4,
+  scene: 'default',
+};
 
 let speakPhraseCb: ((text: string) => void) | null = null;
 let emergencyDismissCb: (() => void) | null = null;
@@ -35,10 +52,20 @@ export function initUi(opts: {
   onSave: (p: UserProfile, s: AppSettings) => void;
   onSpeakPhrase: (text: string) => void;
   onOnboarded: () => void;
+  onSceneChange: (scene: SceneId) => void;
 }): void {
   speakPhraseCb = opts.onSpeakPhrase;
   fillForm(opts.profile, opts.settings);
-  renderQuickPhrases(opts.profile.commonPhrases);
+  setActiveScene(opts.settings.scene);
+
+  // 场景切换 chips
+  document.querySelectorAll<HTMLButtonElement>('.scene-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const scene = (chip.dataset.scene ?? 'default') as SceneId;
+      setActiveScene(scene);
+      opts.onSceneChange(scene);
+    });
+  });
 
   // 30 秒上手卡：首启显示，看过不再弹
   const onboard = byId('onboard');
@@ -68,7 +95,14 @@ export function initUi(opts: {
   });
 }
 
-/** 快捷句发声板：把常用语渲染为点按即说的按钮（保存后重新渲染）。 */
+/** 场景 chips 选中态。 */
+export function setActiveScene(scene: SceneId): void {
+  document.querySelectorAll<HTMLButtonElement>('.scene-chip').forEach((chip) => {
+    chip.classList.toggle('active', chip.dataset.scene === scene);
+  });
+}
+
+/** 快捷句发声板：把常用语渲染为点按即说的按钮（保存/切场景后重新渲染）。 */
 export function renderQuickPhrases(phrases: string[]): void {
   const card = byId('quick-card');
   const list = byId('quick-list');
@@ -111,11 +145,30 @@ function fillForm(p: UserProfile, s: AppSettings): void {
   if (tone) tone.checked = true;
   const twostep = byId('f-twostep') as HTMLInputElement | null;
   if (twostep) twostep.checked = s.twoStepConfirm;
+  const offline = byId('f-offline') as HTMLInputElement | null;
+  if (offline) offline.checked = s.offlineMode;
+  const mirror = byId('f-mirror') as HTMLInputElement | null;
+  if (mirror) mirror.checked = s.mirrorHud;
+  const listen = document.querySelector<HTMLInputElement>(
+    `input[name="f-listen"][value="${s.listenSeconds}"]`,
+  );
+  if (listen) listen.checked = true;
 }
 
 function readSettings(): AppSettings {
   const twostep = byId('f-twostep') as HTMLInputElement | null;
-  return { twoStepConfirm: twostep?.checked ?? true };
+  const offline = byId('f-offline') as HTMLInputElement | null;
+  const mirror = byId('f-mirror') as HTMLInputElement | null;
+  const listenRaw = document.querySelector<HTMLInputElement>('input[name="f-listen"]:checked')?.value;
+  const listenSeconds = (Number(listenRaw) || 4) as AppSettings['listenSeconds'];
+  const activeChip = document.querySelector<HTMLButtonElement>('.scene-chip.active');
+  return {
+    twoStepConfirm: twostep?.checked ?? true,
+    offlineMode: offline?.checked ?? false,
+    mirrorHud: mirror?.checked ?? false,
+    listenSeconds,
+    scene: (activeChip?.dataset.scene ?? 'default') as SceneId,
+  };
 }
 
 function readForm(): UserProfile {

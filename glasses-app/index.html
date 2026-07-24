@@ -70,6 +70,12 @@
       .guide-key { color: #7ce87c; white-space: nowrap; min-width: 7.5em; }
       .check { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; color: #d7e8d7; font-size: 15px; }
       .check input { width: 20px; height: 20px; accent-color: #2f6b2f; }
+      .scene-row { display: flex; gap: 8px; }
+      .scene-chip {
+        flex: 1; width: auto; margin-top: 0; padding: 10px 0; font-size: 15px;
+        background: #0e130e; border: 1px solid #2a3a2a; color: #d7e8d7; border-radius: 10px;
+      }
+      .scene-chip.active { background: #2f6b2f; color: #eaffea; border-color: #2f6b2f; }
       #emergency-overlay {
         position: fixed; inset: 0; z-index: 99; background: #c62828; color: #fff;
         display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -88,6 +94,17 @@
       <h1>无声之声</h1>
       <p class="sub">帮你把话说出口的社交表达搭子</p>
       <span class="chip" id="status">待机</span>
+
+      <!-- 场景预设：影响候选生成与快捷句（一键切换，存设置） -->
+      <section class="card">
+        <h2>场景（影响候选与快捷句）</h2>
+        <div class="scene-row">
+          <button class="scene-chip active" data-scene="default">通用</button>
+          <button class="scene-chip" data-scene="work">工作</button>
+          <button class="scene-chip" data-scene="dining">点餐</button>
+          <button class="scene-chip" data-scene="social">聚会</button>
+        </div>
+      </section>
 
       <!-- 30 秒上手（首启显示，看过不再弹） -->
       <section class="card" id="onboard" hidden>
@@ -150,6 +167,21 @@
         <input type="checkbox" id="f-twostep" checked />
         <span>两步确认：候选选中后再点一下才说出（防误触）</span>
       </label>
+      <label class="check">
+        <input type="checkbox" id="f-offline" />
+        <span>纯离线模式：不联网，候选用内置短语、发声用本机语音（隐私/无网可用）</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="f-mirror" />
+        <span>手机镜像眼镜画面（默认关保隐私，演示时打开）</span>
+      </label>
+
+      <label>聆听时长</label>
+      <div class="tones">
+        <label><input type="radio" name="f-listen" value="3" /><span>3 秒</span></label>
+        <label><input type="radio" name="f-listen" value="4" checked /><span>4 秒</span></label>
+        <label><input type="radio" name="f-listen" value="5" /><span>5 秒</span></label>
+      </div>
 
       <button id="btn-save">保存</button>
       <button id="btn-back" class="ghost">返回</button>
