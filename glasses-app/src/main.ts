@@ -1,12 +1,8 @@
 // 无声之声 · 眼镜插件
-// 职责：采 PCM / HUD 渲染 / R1 事件 / 云编排 / TTS 播放 / 选择状态机。
-// SDK 细节收敛在 ./hub（采音/HUD/输入/播音），本文件只管状态机与云编排。
-// 对应文档：docs/接口契约.md §2（状态机）、§3（后端接口）
-//
-// 双模式：有 Even bridge（Even App / 模拟器）走真实 SDK；纯浏览器下 hub 自动回退键盘+DOM。
+// main.ts 只管状态机、云编排、超时/取消和诊断；Even Hub SDK 细节收敛在 ./hub。
 
 import {
-  pickTemplateCandidates, // 断网/后端不可达时的插件端兜底（②）
+  normalizeCandidateTexts,
   type AsrRequest,
   type AsrResponse,
   type Candidate,
@@ -14,6 +10,8 @@ import {
   type CandidatesRequest,
   type CandidatesResponse,
   type ConversationTurn,
+  type HealthResponse,
+  type InteractionMode,
   type RawInput,
   type SceneContext,
   type TtsRequest,
@@ -34,17 +32,24 @@ import {
   setMirror,
   speakFallback,
   stopCapture,
+  stopPlayback,
   usageOf,
   watchDeviceStatus,
+  type HubMode,
 } from './hub';
 import {
   DEFAULT_SETTINGS,
   hideEmergency,
   initUi,
+  normalizeSettings,
+  renderDiagnostics,
   renderQuickPhrases,
   setStatus,
   showEmergency,
   type AppSettings,
+  type CandidateOrigin,
+  type DiagnosticsSnapshot,
+  type PartnerId,
   type SceneId,
 } from './ui';
 import {
@@ -56,255 +61,574 @@ import {
   speakingScreen,
   thinkingScreen,
 } from './screens';
+import {
+  FlowTokenController,
+  playEmergencyTwice,
+  type FlowToken,
+} from './flow';
+import type { PlaybackResult } from './playback';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8787';
 const PROFILE_KEY = 'profile';
 const SETTINGS_KEY = 'settings';
 const ONBOARD_KEY = 'onboarded';
-
-/** 场景短语包：叠加在用户常用语上，影响候选生成与快捷句（不改契约，B 零改动） */
-const SCENE_PHRASES: Record<SceneId, string[]> = {
-  default: [],
-  work: ['我先记一下，稍后回复你', '这个我需要确认一下', '可以发我文字吗', '我们约个时间细聊'],
-  dining: ['请给我一杯温水', '我要这个，谢谢', '请少辣，谢谢', '麻烦帮我打包'],
-  social: ['很高兴见到你', '你先说，我在听', '我去下洗手间', '今天很开心，先走啦'],
-};
-
-/** 主动模式分组（双击戒指唤出，复用候选选择机制：swipe 选/tap 说/double 换组） */
-const ACTIVE_GROUPS: { name: string; phrases: string[] }[] = [
-  { name: '打招呼', phrases: ['你好，很高兴认识你', '早上好', '好久不见', '回头见'] },
-  { name: '需求', phrases: ['请帮我一下', '请给我一杯水', '我想休息一下', '请再说一遍'] },
-  { name: '缓冲', phrases: ['等我一下', '容我想想', '我在听', '稍后回复你'] },
-  { name: '告别', phrases: ['我先失陪一下', '今天先到这', '谢谢你的理解', '我们下次再聊'] },
-];
+const HEALTH_TIMEOUT_MS = 2000;
+const ASR_TIMEOUT_MS = 2000;
+const CANDIDATES_TIMEOUT_MS = 2800;
+const TTS_TIMEOUT_MS = 7000;
 
 let state: UiState = 'IDLE';
 let profile: UserProfile = { userId: 'demo', commonPhrases: [] };
-let settings: AppSettings = { ...DEFAULT_SETTINGS };
+let settings: AppSettings = normalizeSettings(DEFAULT_SETTINGS);
 let current: CandidateSet | null = null;
-let armed = false; // 两步确认：候选已锁定，再 tap 才说出
-let flowId = 0; // 会话令牌：看门狗复位后丢弃迟到的旧流程结果
+let armed = false;
 let emergencyActive = false;
-let activeGroup = 0; // 主动模式当前分组
-let history: ConversationTurn[] = []; // 多轮上下文（会话级，最近 3 轮）
+let activeGroup = 0;
+let history: ConversationTurn[] = [];
+let prewarmController: AbortController | null = null;
 
-/** 按历史选中次数稳定降序（“越用越懂你”；次数相同保持原序）。 */
-function sortByUsage(cands: Candidate[]): Candidate[] {
-  return cands
-    .map((c, i) => ({ c, i }))
-    .sort((a, b) => usageOf(b.c.text) - usageOf(a.c.text) || a.i - b.i)
-    .map((x) => x.c);
+let diagnostics: DiagnosticsSnapshot = {
+  hubMode: 'browser',
+  deviceConnected: null,
+  backendState: 'idle',
+  backendOrigin: BACKEND,
+};
+
+function updateDiagnostics(patch: Partial<DiagnosticsSnapshot>): void {
+  diagnostics = { ...diagnostics, ...patch };
+  renderDiagnostics(diagnostics);
 }
 
-/** 当前生效的常用语：用户自定义 + 场景短语包（去重） */
+function sortByUsage(candidates: Candidate[]): Candidate[] {
+  return candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .sort(
+      (a, b) =>
+        usageOf(b.candidate.text) - usageOf(a.candidate.text) || a.index - b.index,
+    )
+    .map(({ candidate }) => candidate);
+}
+
 function effectivePhrases(): string[] {
-  return [...new Set([...profile.commonPhrases, ...SCENE_PHRASES[settings.scene]])];
+  return [
+    ...new Set([
+      ...profile.commonPhrases,
+      ...(settings.scenePhrases[settings.scene] ?? []),
+    ]),
+  ];
 }
 
-/** 聆听时长（可配置 3/4/5 秒） */
 function listenMs(): number {
   return settings.listenSeconds * 1000;
 }
 
-/** 场景上下文：时间必带 + 场景手选（backend 据此让候选贴合情境，见契约 §3.2） */
+const PARTNER_LABEL: Record<PartnerId, string | undefined> = {
+  default: undefined,
+  stranger: '陌生人',
+  friend: '朋友',
+  family: '家人',
+  senior: '上级',
+  colleague: '同事',
+  staff: '服务员',
+};
+
 function buildContext(): SceneContext {
   const now = new Date();
   const hh = String(now.getHours()).padStart(2, '0');
   const mm = String(now.getMinutes()).padStart(2, '0');
-  const h = now.getHours();
+  const hour = now.getHours();
   const timeOfDay =
-    h < 6 ? '深夜' : h < 10 ? '早晨' : h < 14 ? '午餐时段' : h < 18 ? '下午' : h < 21 ? '晚餐时段' : '晚间';
+    hour < 6
+      ? '深夜'
+      : hour < 10
+        ? '早晨'
+        : hour < 14
+          ? '午餐时段'
+          : hour < 18
+            ? '下午'
+            : hour < 21
+              ? '晚餐时段'
+              : '晚间';
   const sceneLabel: Record<SceneId, string | undefined> = {
     default: undefined,
     work: '工作场合',
     dining: '餐厅',
     social: '聚会',
   };
-  return { localTime: `${hh}:${mm}`, timeOfDay, scene: sceneLabel[settings.scene] };
+  return {
+    localTime: `${hh}:${mm}`,
+    timeOfDay,
+    scene: sceneLabel[settings.scene],
+    partner: PARTNER_LABEL[settings.partner],
+  };
 }
 
-// ---- 看门狗：LISTENING/THINKING 卡住 10s 强制复位（坏了也回得来）----
+// ---- 流程取消与请求超时 ----
+
+const flows = new FlowTokenController(() => {
+  stopCapture();
+  stopPlayback();
+});
+
+function cancelCurrentFlow(): void {
+  flows.cancel();
+}
+
+function beginFlow(): FlowToken {
+  return flows.begin();
+}
+
+function flowIsActive(flow: FlowToken): boolean {
+  return flows.isActive(flow);
+}
+
+function finishFlow(flow: FlowToken): void {
+  flows.finish(flow);
+}
+
+async function fetchJson<T>(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  parentSignal?: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const onParentAbort = () => controller.abort();
+  parentSignal?.addEventListener('abort', onParentAbort, { once: true });
+  if (parentSignal?.aborted) controller.abort();
+  const timer = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
+    return (await response.json()) as T;
+  } catch (error) {
+    if (timedOut) throw new Error(`请求超时（${timeoutMs}ms）`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    parentSignal?.removeEventListener('abort', onParentAbort);
+  }
+}
+
+function abortError(error: unknown, signal: AbortSignal): boolean {
+  return signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
+}
+
+// ---- 看门狗 ----
+
 let watchdog: number | undefined;
 
-function armWatchdog() {
+function armWatchdog(): void {
   clearWatchdog();
   watchdog = window.setTimeout(() => {
-    if (state === 'LISTENING' || state === 'THINKING') {
-      flowId++; // 丢弃迟到结果
-      stopCapture();
-      setState('IDLE');
-      renderPage(idleScreen('没听清，轻点戒指再试一次'));
-    }
+    if (state !== 'LISTENING' && state !== 'THINKING') return;
+    cancelCurrentFlow();
+    setState('IDLE');
+    updateDiagnostics({ lastError: '主流程超过 10 秒，已自动复位' });
+    renderPage(idleScreen('没听清，轻点戒指再试一次'));
   }, 10000);
 }
 
-function clearWatchdog() {
-  if (watchdog !== undefined) {
-    clearTimeout(watchdog);
-    watchdog = undefined;
-  }
+function clearWatchdog(): void {
+  if (watchdog === undefined) return;
+  clearTimeout(watchdog);
+  watchdog = undefined;
 }
 
 // ---- 主流程 ----
 
-/** IDLE 下 tap：开始聆听（push-to-listen；聆听中再 tap 可提前结束） */
-async function startListening() {
+async function startListening(): Promise<void> {
   if (state !== 'IDLE') return;
-  const id = ++flowId;
+  if (settings.offlineMode) {
+    showPrivacyQuickCandidates();
+    return;
+  }
+
+  const flow = beginFlow();
   setState('LISTENING');
   armWatchdog();
+  updateDiagnostics({
+    pcmBytes: undefined,
+    pcmDurationMs: undefined,
+    asrMs: undefined,
+    candidatesMs: undefined,
+    totalMs: undefined,
+    candidateOrigin: undefined,
+    lastError: undefined,
+  });
   renderPage(listeningScreen(0, listenMs()));
+
   try {
-    const audio = await captureAudio(listenMs(), (elapsed, total) => {
-      if (id === flowId && state === 'LISTENING') renderPage(listeningScreen(elapsed, total));
+    const audio = await captureAudio(listenMs(), flow.signal, (elapsed, total) => {
+      if (flowIsActive(flow) && state === 'LISTENING') {
+        renderPage(listeningScreen(elapsed, total));
+      }
     });
-    if (id !== flowId) return; // 已被看门狗/新流程接管
+    if (!flowIsActive(flow)) return;
+
+    const thinkingStarted = performance.now();
     setState('THINKING');
     renderPage(thinkingScreen());
-    const heardText = await asr(audio);
-    if (id !== flowId) return;
+    const recognized = await transcribe(audio, flow.signal);
+    if (!flowIsActive(flow)) return;
+
     const turnId = `t_${Date.now()}`;
-    const candidates = await getCandidates(turnId, heardText);
-    if (id !== flowId) return;
-    current = { turnId, heardText, candidates: sortByUsage(candidates), highlightIndex: 0 };
+    if (!recognized.ok) {
+      showLocalCandidates(
+        turnId,
+        recognized.reason === 'empty-audio'
+          ? '未采到音频 · 快捷表达'
+          : '后端不可达 · 快捷表达',
+        effectivePhrases(),
+        'client-template',
+        thinkingStarted,
+        recognized.error,
+      );
+      return;
+    }
+    if (!recognized.text.trim()) {
+      showLocalCandidates(
+        turnId,
+        '未听清 · 快捷表达',
+        effectivePhrases(),
+        'client-template',
+        thinkingStarted,
+      );
+      return;
+    }
+
+    const generated = await getCandidates(
+      turnId,
+      recognized.text,
+      [],
+      'reply',
+      flow.signal,
+    );
+    if (!flowIsActive(flow)) return;
+    current = {
+      turnId,
+      heardText: recognized.text,
+      candidates: sortByUsage(generated.candidates),
+      highlightIndex: 0,
+    };
     armed = false;
     setState('CANDIDATES');
+    updateDiagnostics({
+      candidateOrigin: generated.origin,
+      totalMs: performance.now() - thinkingStarted,
+      lastError: generated.error,
+    });
     renderCandidates(current);
-  } catch {
-    // 任一环抛错都回得来，不让用户以为设备坏了
-    if (id !== flowId) return;
+  } catch (error) {
+    if (!flowIsActive(flow) || abortError(error, flow.signal)) return;
     setState('IDLE');
+    updateDiagnostics({ lastError: errorMessage(error) });
     renderPage(idleScreen('出了点问题，轻点戒指再试一次'));
   } finally {
-    if (id === flowId) clearWatchdog();
+    if (flowIsActive(flow)) {
+      clearWatchdog();
+      finishFlow(flow);
+    }
   }
 }
 
-/** 聆听倒计时已移到 screens.listeningScreen（进度条） */
+function showPrivacyQuickCandidates(): void {
+  const flow = beginFlow();
+  const turnId = `privacy_${Date.now()}`;
+  current = {
+    turnId,
+    heardText: '隐私快捷 · 未采音',
+    candidates: sortByUsage(
+      normalizeCandidateTexts(effectivePhrases(), '', {
+        idPrefix: 'privacy',
+      }),
+    ),
+    highlightIndex: 0,
+  };
+  armed = false;
+  setState('CANDIDATES');
+  updateDiagnostics({
+    backendState: 'privacy',
+    health: undefined,
+    candidateOrigin: 'privacy-quick',
+    asrMs: undefined,
+    candidatesMs: 0,
+    totalMs: 0,
+    lastError: undefined,
+  });
+  renderCandidates(current);
+  finishFlow(flow);
+}
 
-/** 请求候选：离线模式直走模板库；否则先 backend，不可达→插件端兜底。profile 注入场景短语。 */
-async function getCandidates(turnId: string, heardText: string, exclude: string[] = []) {
-  if (settings.offlineMode) return pickTemplateCandidates(heardText, exclude); // 隐私/无网：不联网
+function showLocalCandidates(
+  turnId: string,
+  label: string,
+  phrases: string[],
+  origin: CandidateOrigin,
+  startedAt: number,
+  error?: string,
+): void {
+  current = {
+    turnId: `local_${turnId}`,
+    heardText: label,
+    candidates: sortByUsage(
+      normalizeCandidateTexts(phrases, '', {
+        idPrefix: 'local',
+      }),
+    ),
+    highlightIndex: 0,
+  };
+  armed = false;
+  setState('CANDIDATES');
+  updateDiagnostics({
+    candidateOrigin: origin,
+    candidatesMs: 0,
+    totalMs: performance.now() - startedAt,
+    lastError: error,
+  });
+  renderCandidates(current);
+}
+
+interface CandidateResult {
+  candidates: Candidate[];
+  origin: CandidateOrigin;
+  error?: string;
+}
+
+async function getCandidates(
+  turnId: string,
+  heardText: string,
+  exclude: string[],
+  mode: InteractionMode,
+  signal: AbortSignal,
+  fallbackTexts: string[] = [],
+): Promise<CandidateResult> {
+  const started = performance.now();
+  const fallback = (error?: string): CandidateResult => ({
+    candidates: normalizeCandidateTexts(fallbackTexts, heardText, {
+      exclude,
+      idPrefix: mode === 'active' ? 'active' : 'client',
+    }),
+    origin: mode === 'active' ? 'active-phrase' : 'client-template',
+    error,
+  });
+
+  if (settings.offlineMode) return fallback();
   try {
-    const profileForRequest: UserProfile = { ...profile, commonPhrases: effectivePhrases() };
+    const profileForRequest: UserProfile = {
+      ...profile,
+      commonPhrases: effectivePhrases(),
+    };
     const body: CandidatesRequest = {
       turnId,
       heardText,
       profile: profileForRequest,
       exclude,
       context: buildContext(),
-      history: history.length ? history : undefined, // 多轮上下文（最近≤3轮）
+      mode,
+      history: history.length ? history : undefined,
     };
-    const r = await fetch(`${BACKEND}/candidates`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) throw new Error(`candidates ${r.status}`);
-    return ((await r.json()) as CandidatesResponse).candidates;
-  } catch {
-    return pickTemplateCandidates(heardText, exclude); // ② 断网兜底
+    const response = await fetchJson<CandidatesResponse>(
+      `${BACKEND}/candidates`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+      CANDIDATES_TIMEOUT_MS,
+      signal,
+    );
+    if (signal.aborted) throw new DOMException('Flow cancelled', 'AbortError');
+    if (response.turnId !== turnId) {
+      throw new Error('候选响应 turnId 不匹配');
+    }
+    updateDiagnostics({ candidatesMs: performance.now() - started });
+    return {
+      candidates: normalizeCandidateTexts(
+        (Array.isArray(response.candidates) ? response.candidates : [])
+          .map((candidate) => candidate?.text)
+          .filter((text): text is string => typeof text === 'string'),
+        heardText,
+        { exclude, idPrefix: 'api' },
+      ),
+      origin: response.source === 'template' ? 'backend-template' : 'llm',
+    };
+  } catch (error) {
+    if (abortError(error, signal)) throw error;
+    updateDiagnostics({ candidatesMs: performance.now() - started });
+    return fallback(`候选接口：${errorMessage(error)}`);
   }
 }
 
-/** 确认选中 → TTS 发声 →「已替你说」确认（确定感，兼容听障） */
-async function confirmAndSpeak() {
+async function confirmAndSpeak(): Promise<void> {
   if (state !== 'CANDIDATES' || !current) return;
   const chosen = current.candidates[current.highlightIndex];
+  if (!chosen) return;
+
   const turn = current;
-  bumpUsage(chosen.text); // 频次学习：选过的下次排前
+  const flow = beginFlow();
+  bumpUsage(chosen.text);
   setState('SPEAKING');
   renderPage(speakingScreen(chosen.text));
-  await speak(chosen.text);
-  // 多轮上下文：只记应答模式的真实对话（主动模式 turnId 以 active_ 开头，不计入）
-  if (!turn.turnId.startsWith('active_')) {
+  const result = await speak(chosen.text, flow.signal);
+  if (!flowIsActive(flow) || result.result === 'cancelled') return;
+
+  if (result.result !== 'completed') {
+    setState('IDLE');
+    updateDiagnostics({ lastError: 'MP3 与本机语音均未能播放' });
+    renderPage(idleScreen('未能发声，请重试'));
+    finishFlow(flow);
+    return;
+  }
+
+  if (
+    !turn.turnId.startsWith('active_') &&
+    !turn.turnId.startsWith('privacy_') &&
+    !turn.turnId.startsWith('local_')
+  ) {
     history.push({ heard: turn.heardText, said: chosen.text });
     if (history.length > 3) history.shift();
   }
   renderPage(confirmedScreen(chosen.text));
-  await sleepMs(2000);
+  if (!(await sleepWithSignal(2000, flow.signal)) || !flowIsActive(flow)) return;
   setState('IDLE');
   renderPage(idleScreen());
+  finishFlow(flow);
 }
 
-// ---- 输入事件（语义随状态而变，见接口契约 §2）----
-export function handleInput(input: RawInput) {
+// ---- 输入事件 ----
+
+export function handleInput(input: RawInput): void {
   if (input === 'temple_double_tap') {
-    void emergency(); // 任意状态
+    void emergency();
     return;
   }
   switch (state) {
     case 'IDLE':
-      if (input === 'tap') startListening();
-      else if (input === 'double_tap') openActiveMode(); // P1：主动模式轮盘
+      if (input === 'tap') void startListening();
+      else if (input === 'double_tap') openActiveMode();
       break;
     case 'LISTENING':
-      if (input === 'tap') stopCapture(); // 提前结束采音（控制感）
+      if (input === 'tap') stopCapture();
       break;
     case 'CANDIDATES':
       if (!current) break;
       if (input === 'swipe_up') move(-1);
       else if (input === 'swipe_down') move(1);
       else if (input === 'tap') {
-        // 两步确认（可配置，默认开）：首 tap 锁定高亮，再 tap 才说出（防误触）
         if (settings.twoStepConfirm && !armed) {
           armed = true;
           renderCandidates(current);
         } else {
           armed = false;
-          confirmAndSpeak();
+          void confirmAndSpeak();
         }
-      } else if (input === 'double_tap') refresh(); // 换一批
+      } else if (input === 'double_tap') {
+        void refresh();
+      }
       break;
   }
 }
 
-function move(delta: number) {
-  if (!current) return;
-  armed = false; // 换了选择，需重新锁定
-  const n = current.candidates.length;
-  current.highlightIndex = (current.highlightIndex + delta + n) % n;
+function move(delta: number): void {
+  if (!current || current.candidates.length === 0) return;
+  armed = false;
+  const count = current.candidates.length;
+  current.highlightIndex = (current.highlightIndex + delta + count) % count;
   renderCandidates(current);
 }
 
-async function refresh() {
+async function refresh(): Promise<void> {
   if (!current) return;
   armed = false;
-  // 主动模式：double-tap 换下一组（不请求后端）
   if (current.turnId.startsWith('active_')) {
     activeGroup++;
-    showActiveGroup();
+    await showActiveGroup();
     return;
   }
-  const seen = current.candidates.map((c) => c.text);
-  current.candidates = sortByUsage(await getCandidates(current.turnId, current.heardText, seen));
-  current.highlightIndex = 0;
-  renderCandidates(current);
+  if (current.turnId.startsWith('privacy_') || settings.offlineMode) {
+    showPrivacyQuickCandidates();
+    return;
+  }
+  if (current.turnId.startsWith('local_')) {
+    const seen = current.candidates.map((candidate) => candidate.text);
+    current.candidates = sortByUsage(
+      normalizeCandidateTexts(effectivePhrases(), '', {
+        exclude: seen,
+        idPrefix: 'local',
+      }),
+    );
+    current.highlightIndex = 0;
+    updateDiagnostics({ candidateOrigin: 'client-template' });
+    renderCandidates(current);
+    return;
+  }
+
+  const previous = current;
+  const flow = beginFlow();
+  const seen = previous.candidates.map((candidate) => candidate.text);
+  try {
+    const refreshed = await getCandidates(
+      previous.turnId,
+      previous.heardText,
+      seen,
+      'reply',
+      flow.signal,
+    );
+    if (!flowIsActive(flow) || state !== 'CANDIDATES') return;
+    current = {
+      ...previous,
+      candidates: sortByUsage(refreshed.candidates),
+      highlightIndex: 0,
+    };
+    updateDiagnostics({
+      candidateOrigin: refreshed.origin,
+      lastError: refreshed.error,
+    });
+    renderCandidates(current);
+  } finally {
+    if (flowIsActive(flow)) finishFlow(flow);
+  }
 }
 
-/** 紧急呼救：眼镜大字警示闪烁 + 手机全屏红色 + 紧急语连播 2 遍（点手机可解除） */
-async function emergency() {
+// ---- 紧急模式 ----
+
+async function emergency(): Promise<void> {
   if (emergencyActive) return;
   emergencyActive = true;
-  flowId++; // 抢占任何进行中的流程
-  stopCapture();
   clearWatchdog();
+  const flow = beginFlow();
   const text = profile.emergencyText?.trim() || '请帮帮我';
   setState('SPEAKING');
   showEmergency(text, () => {
-    emergencyActive = false; // 手机点按解除，停止后续重复
+    if (!emergencyActive) return;
+    emergencyActive = false;
+    cancelCurrentFlow();
+    setState('IDLE');
+    renderPage(idleScreen());
   });
-  for (let i = 0; i < 2 && emergencyActive; i++) {
-    renderPage(emergencyScreen(text, i % 2 === 0));
-    await speak(text);
-  }
+
+  const emergencyResult = await playEmergencyTwice(
+    async (pass) => {
+      renderPage(emergencyScreen(text, pass === 0));
+      return (await speak(text, flow.signal)).result;
+    },
+    () => emergencyActive && flowIsActive(flow),
+  );
+  if (emergencyResult === 'cancelled') return;
+
+  if (!flowIsActive(flow)) return;
   emergencyActive = false;
   hideEmergency();
   setState('IDLE');
   renderPage(idleScreen());
+  finishFlow(flow);
 }
 
-/** 手机端状态 chip 文案（跟随状态机） */
 const STATUS_TEXT: Record<UiState, string> = {
   IDLE: '待机',
   LISTENING: '聆听中…',
@@ -313,164 +637,402 @@ const STATUS_TEXT: Record<UiState, string> = {
   SPEAKING: '代说中…',
 };
 
-function setState(s: UiState) {
-  state = s;
-  setStatus(STATUS_TEXT[s]);
+function setState(next: UiState): void {
+  state = next;
+  setStatus(STATUS_TEXT[next], next);
 }
 
-// ---- 个性化配置（本地 KVS 持久化，见契约 §4）----
+// ---- KVS ----
 
 async function loadProfile(): Promise<UserProfile> {
   try {
     const raw = await kvsGet(PROFILE_KEY);
-    if (raw) return { userId: 'demo', commonPhrases: [], ...JSON.parse(raw) } as UserProfile;
+    if (raw) {
+      return {
+        userId: 'demo',
+        commonPhrases: [],
+        ...(JSON.parse(raw) as Partial<UserProfile>),
+      };
+    }
   } catch {
     /* 解析失败用默认 */
   }
   return { userId: 'demo', commonPhrases: [] };
 }
 
-async function saveProfile(p: UserProfile): Promise<void> {
-  await kvsSet(PROFILE_KEY, JSON.stringify(p));
+async function saveProfile(next: UserProfile): Promise<void> {
+  await kvsSet(PROFILE_KEY, JSON.stringify(next));
 }
 
 async function loadSettings(): Promise<AppSettings> {
   try {
     const raw = await kvsGet(SETTINGS_KEY);
-    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } as AppSettings;
+    if (raw) return normalizeSettings(JSON.parse(raw));
   } catch {
     /* 解析失败用默认 */
   }
-  return { ...DEFAULT_SETTINGS };
+  return normalizeSettings(DEFAULT_SETTINGS);
 }
 
-async function saveSettings(s: AppSettings): Promise<void> {
-  await kvsSet(SETTINGS_KEY, JSON.stringify(s));
+async function saveSettings(next: AppSettings): Promise<void> {
+  await kvsSet(SETTINGS_KEY, JSON.stringify(next));
 }
 
-// ---- 采音 / ASR / TTS（采音与播音落在 ./hub，防回声见状态机）----
+// ---- 采音 / ASR / TTS ----
 
 async function captureAudio(
   ms: number,
+  signal: AbortSignal,
   onTick?: (elapsedMs: number, totalMs: number) => void,
 ): Promise<string> {
-  return capturePcm(ms, onTick); // 采四麦 16kHz PCM，返回 base64（无 bridge 时为空串）
+  const started = performance.now();
+  const audio = await capturePcm(ms, onTick);
+  const duration = performance.now() - started;
+  if (!signal.aborted) {
+    updateDiagnostics({
+      pcmBytes: base64ByteLength(audio),
+      pcmDurationMs: duration,
+    });
+  }
+  return audio;
 }
 
-async function asr(audio: string): Promise<string> {
-  if (settings.offlineMode) return ''; // 离线模式：音频不出设备，不上传
-  // 经 backend 代理调云 ASR
+interface TranscriptionResult {
+  ok: boolean;
+  text: string;
+  reason?: 'empty-audio' | 'backend';
+  error?: string;
+}
+
+async function transcribe(audio: string, signal: AbortSignal): Promise<TranscriptionResult> {
+  const started = performance.now();
+  if (!audio) {
+    updateDiagnostics({ asrMs: 0 });
+    return { ok: false, text: '', reason: 'empty-audio', error: '未采到 PCM 音频' };
+  }
   try {
     const body: AsrRequest = { audio, final: true };
-    const r = await fetch(`${BACKEND}/asr`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    return ((await r.json()) as AsrResponse).text ?? '';
-  } catch {
-    return '';
-  }
-}
-
-async function speak(text: string) {
-  // 防回声由「仅 LISTENING 窗口开麦、SPEAKING 期间不开麦」保证，无需守卫标志位
-  let audio = '';
-  let mime = 'audio/mp3';
-  if (!settings.offlineMode) {
-    try {
-      const body: TtsRequest = { text, voice: profile.voice };
-      const r = await fetch(`${BACKEND}/tts`, {
+    const response = await fetchJson<AsrResponse>(
+      `${BACKEND}/asr`,
+      {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
-      });
-      const resp = (await r.json()) as TtsResponse;
-      audio = resp.audio ?? '';
-      mime = resp.mime ?? 'audio/mp3'; // backend 可能返 audio/mpeg，缺省按 mp3（契约 §3.3）
-    } catch {
-      /* 断网/无后端：audio 保持空，走降级链 */
-    }
+      },
+      ASR_TIMEOUT_MS,
+      signal,
+    );
+    if (signal.aborted) throw new DOMException('Flow cancelled', 'AbortError');
+    updateDiagnostics({ asrMs: performance.now() - started });
+    return { ok: true, text: response.text ?? '' };
+  } catch (error) {
+    if (abortError(error, signal)) throw error;
+    updateDiagnostics({ asrMs: performance.now() - started });
+    return {
+      ok: false,
+      text: '',
+      reason: 'backend',
+      error: `ASR：${errorMessage(error)}`,
+    };
   }
-  // 降级链：云 TTS → 浏览器 speechSynthesis（免费/离线）→ 静默；离线模式直走第二级
-  const played = await playAudioBase64(audio, mime);
-  if (!played) await speakFallback(text);
 }
 
-function renderCandidates(set: CandidateSet) {
+interface SpeakResult {
+  result: PlaybackResult;
+  path: DiagnosticsSnapshot['playback'];
+}
+
+async function speak(text: string, signal: AbortSignal): Promise<SpeakResult> {
+  const started = performance.now();
+  let audio = '';
+  let mime = 'audio/mp3';
+
+  if (!settings.offlineMode) {
+    try {
+      const body: TtsRequest = { text, voice: profile.voice };
+      const response = await fetchJson<TtsResponse>(
+        `${BACKEND}/tts`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        TTS_TIMEOUT_MS,
+        signal,
+      );
+      if (signal.aborted) return { result: 'cancelled', path: 'cancelled' };
+      audio = response.audio ?? '';
+      mime = response.mime ?? 'audio/mp3';
+    } catch (error) {
+      if (abortError(error, signal)) {
+        return { result: 'cancelled', path: 'cancelled' };
+      }
+      updateDiagnostics({ lastError: `TTS：${errorMessage(error)}` });
+    }
+  }
+
+  const ttsMs = performance.now() - started;
+  if (audio) {
+    const result = await playAudioBase64(audio, mime);
+    if (signal.aborted) return { result: 'cancelled', path: 'cancelled' };
+    if (result === 'completed') {
+      updateDiagnostics({ playback: 'backend-audio', ttsMs });
+      return { result, path: 'backend-audio' };
+    }
+    if (result === 'cancelled') {
+      updateDiagnostics({ playback: 'cancelled', ttsMs });
+      return { result, path: 'cancelled' };
+    }
+  }
+
+  const fallback = await speakFallback(text);
+  if (signal.aborted) return { result: 'cancelled', path: 'cancelled' };
+  const path = fallback === 'completed' ? 'web-speech' : fallback === 'cancelled' ? 'cancelled' : 'silent';
+  updateDiagnostics({ playback: path, ttsMs });
+  return { result: fallback, path };
+}
+
+function prewarmTts(): void {
+  prewarmController?.abort();
+  prewarmController = null;
+  if (settings.offlineMode) return;
+  const texts = [
+    profile.emergencyText?.trim() || '请帮帮我',
+    ...profile.commonPhrases,
+  ].filter((text, index, all) => !!text && all.indexOf(text) === index).slice(0, 5);
+  const controller = new AbortController();
+  prewarmController = controller;
+  void (async () => {
+    for (const text of texts) {
+      if (controller.signal.aborted) return;
+      try {
+        await fetchJson<TtsResponse>(
+          `${BACKEND}/tts`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text, voice: profile.voice } satisfies TtsRequest),
+          },
+          TTS_TIMEOUT_MS,
+          controller.signal,
+        );
+      } catch {
+        return;
+      }
+    }
+    if (prewarmController === controller) prewarmController = null;
+  })();
+}
+
+// ---- 主动模式 ----
+
+function renderCandidates(set: CandidateSet): void {
   renderPage(candidatesScreen(set, settings.bigText, armed));
 }
 
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-/** 主动模式：IDLE 双击唤出分组短语（常用/打招呼/需求/缓冲/告别），复用候选选择机制 */
-function openActiveMode() {
+function openActiveMode(): void {
   activeGroup = 0;
-  showActiveGroup();
+  void showActiveGroup();
 }
 
 function activeGroups(): { name: string; phrases: string[] }[] {
   const common = effectivePhrases();
-  return common.length ? [{ name: '常用', phrases: common }, ...ACTIVE_GROUPS] : [...ACTIVE_GROUPS];
+  const custom = settings.activeGroups
+    .filter((group) => group.phrases.length > 0)
+    .map((group) => ({ name: group.name || '未命名', phrases: group.phrases }));
+  return common.length ? [{ name: '常用', phrases: common }, ...custom] : custom;
 }
 
-function showActiveGroup() {
+async function showActiveGroup(): Promise<void> {
   const groups = activeGroups();
-  const g = groups[activeGroup % groups.length];
-  const cands = g.phrases.slice(0, 4).map((text, i) => ({ id: `a${activeGroup}_${i}`, text }));
+  if (groups.length === 0) {
+    setState('IDLE');
+    renderPage(idleScreen('未配置主动短语，请在手机配置页添加'));
+    return;
+  }
+
+  const flow = beginFlow();
+  const group = groups[activeGroup % groups.length];
+  const turnId = `active_${Date.now()}`;
+  const staticCandidates = normalizeCandidateTexts(group.phrases, `主动 ${group.name}`, {
+    idPrefix: `active_${activeGroup}`,
+  });
   current = {
-    turnId: `active_${Date.now()}`,
-    heardText: `主动 · ${g.name}（双击换组）`,
-    candidates: sortByUsage(cands),
+    turnId,
+    heardText: `主动 · ${group.name}（双击换组）`,
+    candidates: sortByUsage(staticCandidates),
     highlightIndex: 0,
   };
   armed = false;
   setState('CANDIDATES');
+  updateDiagnostics({ candidateOrigin: 'active-phrase', lastError: undefined });
   renderCandidates(current);
+
+  if (!settings.offlineMode && group.name !== '常用') {
+    const intent = `${group.name}：${group.phrases.join('、')}`;
+    try {
+      const generated = await getCandidates(
+        turnId,
+        intent,
+        [],
+        'active',
+        flow.signal,
+        group.phrases,
+      );
+      if (
+        flowIsActive(flow) &&
+        state === 'CANDIDATES' &&
+        current?.turnId === turnId &&
+        current.highlightIndex === 0 &&
+        !armed
+      ) {
+        current.candidates = sortByUsage(generated.candidates);
+        updateDiagnostics({
+          candidateOrigin: generated.origin,
+          lastError: generated.error,
+        });
+        renderCandidates(current);
+      }
+    } catch (error) {
+      if (!abortError(error, flow.signal)) {
+        updateDiagnostics({ lastError: errorMessage(error) });
+      }
+    }
+  }
+  if (flowIsActive(flow)) finishFlow(flow);
 }
 
-// 启动：等 bridge（超时回退纯浏览器）→ 读 KVS 配置/设置/频次 → 初始化手机 UI → 注册输入 → 首屏
-initHub().then(async () => {
+// ---- health 与启动 ----
+
+async function checkHealth(): Promise<void> {
+  if (settings.offlineMode) {
+    updateDiagnostics({
+      backendState: 'privacy',
+      health: undefined,
+      lastError: undefined,
+    });
+    return;
+  }
+  updateDiagnostics({ backendState: 'checking', lastError: undefined });
+  try {
+    const health = await fetchJson<HealthResponse>(
+      `${BACKEND}/health`,
+      { method: 'GET' },
+      HEALTH_TIMEOUT_MS,
+    );
+    if (!health.ok) throw new Error('health.ok=false');
+    updateDiagnostics({ backendState: 'ready', health });
+  } catch (error) {
+    updateDiagnostics({
+      backendState: 'unreachable',
+      health: undefined,
+      lastError: `Health：${errorMessage(error)}`,
+    });
+  }
+}
+
+initHub().then(async (hubMode: HubMode) => {
   profile = await loadProfile();
   settings = await loadSettings();
-  await loadUsage(); // 频次学习表进内存
+  await loadUsage();
   const onboarded = (await kvsGet(ONBOARD_KEY)) === '1';
-  const byUsage = (a: string, b: string) => usageOf(b) - usageOf(a); // 高频常用语冒泡
+  const byUsage = (a: string, b: string) => usageOf(b) - usageOf(a);
+
+  diagnostics = {
+    ...diagnostics,
+    hubMode,
+    deviceConnected: hubMode === 'browser' ? false : null,
+    backendState: settings.offlineMode ? 'privacy' : 'idle',
+  };
+
   initUi({
     profile,
     settings,
     onboarded,
-    onSave: (p, s) => {
-      profile = p; // 立即生效：后续 /candidates 注入、紧急语、音色都用新配置
-      settings = s;
-      void saveProfile(p);
-      void saveSettings(s);
-      setMirror(s.mirrorHud);
-      renderQuickPhrases(effectivePhrases(), byUsage); // 快捷句板跟随常用语+场景更新，按频次排
+    onSave: (nextProfile, nextSettings) => {
+      profile = nextProfile;
+      settings = normalizeSettings(nextSettings);
+      void saveProfile(profile);
+      void saveSettings(settings);
+      setMirror(settings.mirrorHud);
+      renderQuickPhrases(effectivePhrases(), byUsage);
+      void checkHealth();
+      prewarmTts();
     },
     onSceneChange: (scene) => {
       settings = { ...settings, scene };
       void saveSettings(settings);
       renderQuickPhrases(effectivePhrases(), byUsage);
     },
+    onPartnerChange: (partner) => {
+      settings = { ...settings, partner };
+      void saveSettings(settings);
+    },
     onSpeakPhrase: async (text) => {
-      // 快捷句发声板：手机点按即说（眼镜没电/未戴时独立可用）
       if (state !== 'IDLE') return;
+      const flow = beginFlow();
       bumpUsage(text);
       setState('SPEAKING');
-      await speak(text);
+      renderPage(speakingScreen(text));
+      const result = await speak(text, flow.signal);
+      if (!flowIsActive(flow) || result.result === 'cancelled') return;
+      if (result.result !== 'completed') {
+        setState('IDLE');
+        updateDiagnostics({ lastError: 'MP3 与本机语音均未能播放' });
+        renderPage(idleScreen('未能发声，请重试'));
+        finishFlow(flow);
+        return;
+      }
+      renderPage(confirmedScreen(text));
+      if (!(await sleepWithSignal(2000, flow.signal)) || !flowIsActive(flow)) return;
       setState('IDLE');
+      renderPage(idleScreen());
+      finishFlow(flow);
     },
     onOnboarded: () => void kvsSet(ONBOARD_KEY, '1'),
+    onRetryHealth: () => void checkHealth(),
   });
-  setMirror(settings.mirrorHud); // 镜像默认关（隐私），演示时配置页打开
+
+  renderDiagnostics(diagnostics);
+  setMirror(settings.mirrorHud);
   renderQuickPhrases(effectivePhrases(), byUsage);
   watchDeviceStatus((connected) => {
-    // BLE 断连守护：手机提示；重连后 hub 会自动重建 HUD
-    setStatus(connected ? '已重新连接' : '眼镜已断开，重连中…');
+    updateDiagnostics({ deviceConnected: connected });
+    if (connected) setStatus(STATUS_TEXT[state], state);
+    else setStatus('眼镜已断开，重连中…', 'DISCONNECTED');
   });
-  onInput(handleInput); // SDK 事件 + 键盘（开发期）统一入口
+  onInput(handleInput);
   renderPage(idleScreen());
+  void checkHealth();
+  prewarmTts();
 });
+
+// ---- 小工具 ----
+
+function base64ByteLength(value: string): number {
+  if (!value) return 0;
+  const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((value.length * 3) / 4) - padding);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sleepWithSignal(ms: number, signal: AbortSignal): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(true);
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}

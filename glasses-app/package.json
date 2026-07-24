@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "pack": "evenhub pack app.json dist -o voiceless.ehpk",
     "preview": "vite preview",
     "sim": "evenhub-simulator http://localhost:5173",
     "qr": "evenhub qr --port 5173"
@@ -18,6 +20,7 @@
   "devDependencies": {
     "@evenrealities/evenhub-cli": "^0.1.13",
     "@evenrealities/evenhub-simulator": "^0.8.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.5.0",
     "vite": "^5.4.0"
   }
