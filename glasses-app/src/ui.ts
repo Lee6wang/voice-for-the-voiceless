@@ -40,12 +40,32 @@ export type PartnerId =
   | 'colleague'
   | 'staff';
 
-/** 主动模式分组默认值（用户未配置时的初始预设，之后完全可改） */
-export const DEFAULT_ACTIVE_GROUPS: PhraseGroup[] = [
+/** 旧版主动分组，仅用于识别“从未改过”的历史 KVS 并升级到新预设。 */
+const LEGACY_ACTIVE_GROUPS: PhraseGroup[] = [
   { id: 'g_hello', name: '打招呼', phrases: ['你好，很高兴认识你', '早上好', '好久不见', '回头见'] },
   { id: 'g_need', name: '需求', phrases: ['请帮我一下', '请给我一杯水', '我想休息一下', '请再说一遍'] },
   { id: 'g_buffer', name: '缓冲', phrases: ['等我一下', '容我想想', '我在听', '稍后回复你'] },
   { id: 'g_bye', name: '告别', phrases: ['我先失陪一下', '今天先到这', '谢谢你的理解', '我们下次再聊'] },
+];
+
+/** 双击 R1 即可使用的基础预设；每组固定 4 条，默认预设不被 LLM 替换。 */
+export const DEFAULT_ACTIVE_GROUPS: PhraseGroup[] = [
+  { id: 'preset_basic', name: '基础', phrases: ['你好', '请稍等', '谢谢', '我需要帮助'] },
+  {
+    id: 'preset_communication',
+    name: '沟通',
+    phrases: ['请慢一点', '请再说一遍', '可以打字吗', '让我想一下'],
+  },
+  {
+    id: 'preset_needs',
+    name: '需求',
+    phrases: ['请帮我一下', '我需要休息', '请给我一点时间', '我现在不方便'],
+  },
+  {
+    id: 'preset_finish',
+    name: '结束',
+    phrases: ['我先离开一下', '今天先到这里', '谢谢你的理解', '我们下次再聊'],
+  },
 ];
 
 /** 场景短语包默认值（用户未配置时的初始预设，之后完全可改） */
@@ -109,10 +129,29 @@ function stringList(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === 'string');
 }
 
+function cloneActiveGroups(groups: PhraseGroup[]): PhraseGroup[] {
+  return groups.map((group) => ({ ...group, phrases: [...group.phrases] }));
+}
+
+function sameActiveGroups(left: PhraseGroup[], right: PhraseGroup[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((group, index) => {
+      const expected = right[index];
+      return (
+        expected != null &&
+        group.name === expected.name &&
+        group.phrases.length === expected.phrases.length &&
+        group.phrases.every((phrase, phraseIndex) => phrase === expected.phrases[phraseIndex])
+      );
+    })
+  );
+}
+
 /** 兼容旧 KVS：校验枚举并深度补齐主动分组和各场景短语包。 */
 export function normalizeSettings(value: unknown): AppSettings {
   const raw = value && typeof value === 'object' ? (value as Partial<AppSettings>) : {};
-  const activeGroups = Array.isArray(raw.activeGroups)
+  const parsedActiveGroups = Array.isArray(raw.activeGroups)
     ? raw.activeGroups
         .filter((group): group is PhraseGroup => !!group && typeof group === 'object')
         .map((group, index) => ({
@@ -120,7 +159,10 @@ export function normalizeSettings(value: unknown): AppSettings {
           name: typeof group.name === 'string' ? group.name : '未命名',
           phrases: stringList(group.phrases),
         }))
-    : DEFAULT_ACTIVE_GROUPS.map((group) => ({ ...group, phrases: [...group.phrases] }));
+    : cloneActiveGroups(DEFAULT_ACTIVE_GROUPS);
+  const activeGroups = sameActiveGroups(parsedActiveGroups, LEGACY_ACTIVE_GROUPS)
+    ? cloneActiveGroups(DEFAULT_ACTIVE_GROUPS)
+    : parsedActiveGroups;
   const rawPhrases =
     raw.scenePhrases && typeof raw.scenePhrases === 'object'
       ? (raw.scenePhrases as Partial<Record<SceneId, unknown>>)
@@ -386,7 +428,7 @@ export function initUi(opts: {
 
   // 主动模式分组：新增一个空分组卡
   byId('btn-add-group')?.addEventListener('click', () => {
-    byId('f-active-groups')?.appendChild(buildGroupCard('', []));
+    byId('f-active-groups')?.appendChild(buildGroupCard(gid(), '', []));
     setFormDirty(true);
   });
 
@@ -722,13 +764,14 @@ function renderActiveGroupsEditor(groups: PhraseGroup[]): void {
   const box = byId('f-active-groups');
   if (!box) return;
   box.innerHTML = '';
-  for (const g of groups) box.appendChild(buildGroupCard(g.name, g.phrases));
+  for (const g of groups) box.appendChild(buildGroupCard(g.id, g.name, g.phrases));
 }
 
 /** 单个分组卡：分组名输入 + 删除 + 多行短语。 */
-function buildGroupCard(name: string, phrases: string[]): HTMLElement {
+function buildGroupCard(id: string, name: string, phrases: string[]): HTMLElement {
   const card = document.createElement('div');
   card.className = 'group-card';
+  card.dataset.groupId = id || gid();
   const head = document.createElement('div');
   head.className = 'group-head';
   const nameInput = document.createElement('input');
@@ -785,7 +828,11 @@ function readActiveGroups(): PhraseGroup[] {
       .map((s) => s.trim())
       .filter(Boolean);
     if (!name && phrases.length === 0) continue;
-    groups.push({ id: gid(), name: name || '未命名', phrases });
+    groups.push({
+      id: card.dataset.groupId || gid(),
+      name: name || '未命名',
+      phrases,
+    });
   }
   return groups;
 }
