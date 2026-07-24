@@ -56,6 +56,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
 
 let player: HTMLAudioElement | null = null;
 let unlocked = false;
+let cancelPlayback: (() => void) | null = null;
 
 export function audioUnlocked(): boolean {
   return unlocked;
@@ -80,8 +81,17 @@ export async function unlockAudio(): Promise<boolean> {
   }
 }
 
+/** 立即停止当前 MP3 / Web Speech。紧急手势用它抢占普通播报。 */
+export function stopPlayback(): void {
+  const cancel = cancelPlayback;
+  cancelPlayback = null;
+  cancel?.();
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+}
+
 /** 播放 base64 MP3，resolve 于播放结束（或立即 reject）。SPEAKING 状态期间调用 */
 export function playBase64Mp3(audioB64: string, mime = 'audio/mpeg'): Promise<void> {
+  stopPlayback();
   return new Promise((resolve, reject) => {
     if (!audioB64) {
       reject(new Error('empty audio'));
@@ -90,19 +100,28 @@ export function playBase64Mp3(audioB64: string, mime = 'audio/mpeg'): Promise<vo
     const bytes = Uint8Array.from(atob(audioB64), (ch) => ch.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
     player = player ?? new Audio();
+    const activePlayer = player;
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (cancelPlayback === cancel) cancelPlayback = null;
+      activePlayer.onended = null;
+      activePlayer.onerror = null;
+      URL.revokeObjectURL(url);
+      if (error) reject(error);
+      else resolve();
+    };
+    const cancel = () => {
+      activePlayer.pause();
+      activePlayer.removeAttribute('src');
+      finish(new Error('audio playback stopped'));
+    };
+    cancelPlayback = cancel;
     player.src = url;
-    player.onended = () => {
-      URL.revokeObjectURL(url);
-      resolve();
-    };
-    player.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('audio playback failed'));
-    };
-    player.play().catch((e) => {
-      URL.revokeObjectURL(url);
-      reject(e instanceof Error ? e : new Error('play() rejected'));
-    });
+    player.onended = () => finish();
+    player.onerror = () => finish(new Error('audio playback failed'));
+    player.play().catch((e) => finish(e instanceof Error ? e : new Error('play() rejected')));
   });
 }
 

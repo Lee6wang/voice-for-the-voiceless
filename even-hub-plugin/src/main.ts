@@ -14,7 +14,9 @@ let bridge: EvenAppBridge | null = null;
 const session = new Session(
   {
     setMic: async (on) => {
-      await bridge?.audioControl(on);
+      if (!bridge) return;
+      const ok = await bridge.audioControl(on);
+      if (!ok) throw new Error(`audioControl(${on}) failed`);
     },
     onMirror: renderMirror,
   },

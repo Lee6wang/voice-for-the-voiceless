@@ -20,6 +20,10 @@ const MODEL_DIR = join(
   'sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17',
 );
 const SAMPLE_RATE = 16000;
+// SenseVoice 对纯静音偶尔会产出短英文幻觉。门限故意设得很低，只过滤静音/
+// 数字零底噪，不承担完整 VAD；真实 G2 PCM 仍需在联调时记录能量范围。
+const MIN_RMS = 0.0008;
+const MIN_PEAK = 0.004;
 
 let recognizer: Recognizer | null = null;
 
@@ -57,10 +61,25 @@ function pcmBase64ToFloat32(audioB64: string): Float32Array {
   return samples;
 }
 
+/** 极保守的静音门：false 时不把音频送入 SenseVoice，避免静音幻觉。 */
+export function hasSpeechEnergy(samples: Float32Array): boolean {
+  if (samples.length === 0) return false;
+  let sumSquares = 0;
+  let peak = 0;
+  for (const sample of samples) {
+    const abs = Math.abs(sample);
+    if (abs > peak) peak = abs;
+    sumSquares += sample * sample;
+  }
+  const rms = Math.sqrt(sumSquares / samples.length);
+  return peak >= MIN_PEAK && rms >= MIN_RMS;
+}
+
 /** 整段识别：base64 PCM 16kHz mono → 中文文本 */
 export function transcribe(audioB64: string): string {
   const samples = pcmBase64ToFloat32(audioB64);
   if (samples.length === 0) throw new Error('empty audio');
+  if (!hasSpeechEnergy(samples)) return '';
   const rec = getRecognizer();
   const stream = rec.createStream();
   stream.acceptWaveform({ samples, sampleRate: SAMPLE_RATE });

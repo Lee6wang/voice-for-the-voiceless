@@ -5,7 +5,7 @@
 import type { Candidate, UserProfile } from '@vftv/shared';
 import type { RawInput, UiState } from '@vftv/shared';
 import { fetchAsr, fetchCandidates, fetchTts } from './api';
-import { PcmRecorder, playBase64Mp3, speakFallback } from './audio';
+import { PcmRecorder, playBase64Mp3, speakFallback, stopPlayback } from './audio';
 import { hudCandidates, hudText } from './hud';
 
 /** push-to-listen 最长采音时长（超时自动定稿），契约 §2 */
@@ -30,6 +30,8 @@ export class Session {
   private candidates: Candidate[] = [];
   private highlight = 0;
   private shownTexts: string[] = []; // 换一批时的 exclude 累积
+  /** 每次新流程递增；紧急手势用它让仍在等待网络的旧流程失效。 */
+  private operationId = 0;
 
   constructor(
     private hooks: SessionHooks,
@@ -63,27 +65,62 @@ export class Session {
 
   /** 手机控制页调试入口：跳过采音/ASR，直接用一句文字走候选链路 */
   async simulateHeard(text: string): Promise<void> {
-    if (this.state === 'THINKING' || this.state === 'SPEAKING') return;
+    if (this.state !== 'IDLE' && this.state !== 'CANDIDATES') return;
+    const operationId = ++this.operationId;
     this.newTurn(text);
-    await this.toCandidates();
+    await this.toCandidates([], operationId);
   }
 
   // ---- 状态迁移 ----
 
   private async startListening(): Promise<void> {
+    const operationId = ++this.operationId;
+    stopPlayback();
     this.setState('LISTENING', '聆听中…（再按一下结束）');
     hudText('● 聆听中…');
     this.recorder.start();
-    await this.hooks.setMic(true);
-    this.listenTimer = window.setTimeout(() => void this.finishListening(), MAX_LISTEN_MS);
+    try {
+      await this.hooks.setMic(true);
+    } catch {
+      this.recorder.stop();
+      if (operationId === this.operationId) {
+        this.setState('IDLE', '无法打开眼镜麦克风');
+        hudText('麦克风启动失败\n请检查 G2 连接');
+      }
+      return;
+    }
+    if (operationId !== this.operationId) {
+      this.recorder.stop();
+      try {
+        await this.hooks.setMic(false);
+      } catch {
+        // 已经被更高优先级流程抢占，尽力关闭即可
+      }
+      return;
+    }
+    this.listenTimer = window.setTimeout(
+      () => void this.finishListening(operationId),
+      MAX_LISTEN_MS,
+    );
   }
 
-  private async finishListening(): Promise<void> {
+  private async finishListening(operationId = this.operationId): Promise<void> {
+    if (operationId !== this.operationId) return;
     if (this.listenTimer !== null) {
       clearTimeout(this.listenTimer);
       this.listenTimer = null;
     }
-    await this.hooks.setMic(false);
+    try {
+      await this.hooks.setMic(false);
+    } catch {
+      this.recorder.stop();
+      if (operationId === this.operationId) {
+        this.setState('IDLE', '无法关闭眼镜麦克风');
+        hudText('麦克风控制失败\n请重连 G2');
+      }
+      return;
+    }
+    if (operationId !== this.operationId) return;
     const seconds = this.recorder.seconds;
     const audioB64 = this.recorder.stop();
     if (!audioB64 || seconds < MIN_LISTEN_SEC) {
@@ -99,13 +136,14 @@ export class Session {
     } catch {
       // ASR 失败走空文本分支
     }
+    if (operationId !== this.operationId) return;
     if (!text) {
       this.setState('IDLE', '没听清，按一下重试');
       hudText('没听清，请对方再说一遍\n按一下戒指重试');
       return;
     }
     this.newTurn(text);
-    await this.toCandidates();
+    await this.toCandidates([], operationId);
   }
 
   private newTurn(heardText: string): void {
@@ -115,7 +153,11 @@ export class Session {
     this.shownTexts = [];
   }
 
-  private async toCandidates(exclude: string[] = []): Promise<void> {
+  private async toCandidates(
+    exclude: string[] = [],
+    operationId = this.operationId,
+  ): Promise<void> {
+    if (operationId !== this.operationId) return;
     this.setState('THINKING', '生成候选…');
     hudText(`「${this.heardText}」\n… 正在想怎么回`);
     const { candidates, offline } = await fetchCandidates(
@@ -124,6 +166,7 @@ export class Session {
       this.getProfile(),
       exclude,
     );
+    if (operationId !== this.operationId) return;
     this.candidates = candidates;
     this.highlight = 0;
     this.shownTexts.push(...candidates.map((c) => c.text));
@@ -140,35 +183,49 @@ export class Session {
   }
 
   private async refreshCandidates(): Promise<void> {
-    await this.toCandidates([...this.shownTexts]);
+    await this.toCandidates([...this.shownTexts], this.operationId);
   }
 
   private async confirm(): Promise<void> {
     const chosen = this.candidates[this.highlight];
     if (!chosen) return;
-    await this.speak(chosen.text);
+    await this.speak(chosen.text, false, this.operationId);
   }
 
   /** 镜腿双击：任意状态直接朗读紧急呼救语（契约 §2） */
   private async emergency(): Promise<void> {
+    const operationId = ++this.operationId;
     if (this.listenTimer !== null) {
       clearTimeout(this.listenTimer);
       this.listenTimer = null;
     }
     this.recorder.stop();
-    await this.hooks.setMic(false);
+    stopPlayback();
+    try {
+      await this.hooks.setMic(false);
+    } catch {
+      // 紧急表达优先：即使 G2 麦克风控制失败，也继续尝试由手机发声。
+    }
     const text = this.getProfile().emergencyText?.trim() || '请帮帮我，我需要帮助';
-    await this.speak(text, true);
+    await this.speak(text, true, operationId);
   }
 
   /** 朗读：/tts MP3 → Web Speech → HUD 纯文字，三级降级（契约 §5） */
-  private async speak(text: string, isEmergency = false): Promise<void> {
+  private async speak(
+    text: string,
+    isEmergency = false,
+    operationId = this.operationId,
+  ): Promise<void> {
+    if (operationId !== this.operationId) return;
+    stopPlayback();
     this.setState('SPEAKING', `播放：${text}`);
     hudText(`🔊 ${text}`);
     try {
       const resp = await fetchTts(text, this.getProfile().voice);
+      if (operationId !== this.operationId) return;
       await playBase64Mp3(resp.audio, resp.mime);
     } catch {
+      if (operationId !== this.operationId) return;
       if (!speakFallback(text)) {
         // 最后一级：手机没声也让眼镜/手机屏保留大字，撑 3 秒
         hudText(`（请看手机屏幕）\n${text}`);
@@ -177,6 +234,7 @@ export class Session {
         await new Promise((r) => setTimeout(r, Math.max(1500, text.length * 250)));
       }
     }
+    if (operationId !== this.operationId) return;
     if (isEmergency) {
       this.setState('IDLE', '紧急呼救已播报');
       hudText(`已播报紧急呼救\n${text}`);

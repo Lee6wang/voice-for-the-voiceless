@@ -15,7 +15,17 @@ Even Hub 插件完成：
 
 ## 当前状态
 
-**仅完成架构和开发交接文档，尚未初始化运行时代码。**
+**最小运行时已经实现，TypeScript 构建和 `.ehpk` 打包已通过；G2/R1 真机仍待
+联调。**
+
+已实现：
+
+- Even Bridge 连接、G2 PCM 收集和 HUD 文本/候选；
+- R1/镜腿事件到状态机的路由；
+- `/asr`、`/candidates`、`/tts`、`/profile`、`/health`；
+- 手机控制页、profile 本地缓存、场景上下文；
+- backend 不可达时的插件本地模板；
+- 紧急手势抢占和三级发声降级。
 
 不要把本目录与现有目录混淆：
 
@@ -27,12 +37,31 @@ Even Hub 插件完成：
 
 1. [DEVELOPMENT.md](DEVELOPMENT.md)
 2. [AGENTS.md](AGENTS.md)
-3. [../docs/接口契约.md](../docs/接口契约.md)
-4. [../backend/README.md](../backend/README.md)
+3. [../docs/联调指南.md](../docs/联调指南.md)
+4. [../docs/接口契约.md](../docs/接口契约.md)
+5. [../backend/README.md](../backend/README.md)
+
+## 本地运行
+
+```bash
+# 终端 1：仓库根目录
+npm run dev:backend
+
+# 终端 2：插件开发页（真机局域网访问需要 --host）
+npm run dev:plugin -- --host 0.0.0.0
+
+# 终端 3：可选 simulator
+npm --workspace even-hub-plugin run simulate
+
+# 构建并验证 app.json，生成 voiceless.ehpk
+npm --workspace even-hub-plugin run pack
+```
+
+真机开始前必须按 [联调指南](../docs/联调指南.md) 更新 backend 地址和
+`app.json` 的 network whitelist。
 
 官方资料：
 
 - [Even Hub 官方说明](https://support.evenrealities.com/hc/en-us/articles/15688149217167-Even-Hub)
 - [Even 官方 G2 插件模板](https://github.com/even-realities/evenhub-templates)
 - [Even Hub 文档](https://hub.evenrealities.com)
-

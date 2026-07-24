@@ -6,7 +6,9 @@
 ## 当前事实
 
 - 本目录是新的主客户端方向。
-- 目前只有文档，**没有可运行插件代码**。
+- MVP 插件代码已经存在，构建和 `.ehpk` 打包已通过。
+- 代码已接 HUD、R1/镜腿输入、G2 PCM、backend 全接口、手机控制页和本地兜底。
+- **G2/R1 真机尚未验证**；不得把编译成功描述成硬件闭环完成。
 - 不要把 `glasses-app/` 的浏览器骨架描述成真实 Even SDK 已接通。
 - 不要删除 `config-app/`；它是已跑通的安卓备用配置入口。
 - 官方 Even Realities App 仍然必需，它负责连接 G2/R1 并承载插件。
@@ -14,9 +16,10 @@
 完整开发方案先读：
 
 1. `DEVELOPMENT.md`
-2. `../docs/接口契约.md`
-3. `../backend/README.md`
-4. `../shared/src/types.ts`
+2. `../docs/联调指南.md`
+3. `../docs/接口契约.md`
+4. `../backend/README.md`
+5. `../shared/src/types.ts`
 
 ## 后端现在已经完成什么
 
@@ -31,14 +34,14 @@
 - `/health`；
 - shared 22 类场景模板。
 
-尚未完成的是 **Even 插件侧的真实硬件链路**。
+尚未完成的是 **Even 插件侧的真实硬件验收**。
 
 ## 第一项任务
 
 如果用户没有指定其他任务，第一项工作是：
 
-> 以 Even 官方 `evenhub-templates/asr` 为底座，在本目录初始化最小运行时，
-> 先完成 simulator HUD + backend `/health`，不要直接开始全链路。
+> 按 `../docs/联调指南.md` 从桥/HUD 开始逐层做 G2/R1 真机联调，记录固件、
+> 事件、PCM 字节率和延迟；不要重新创建插件骨架。
 
 必须使用当前官方文档确认 SDK 方法，不凭旧 API 名称猜测：
 
@@ -47,24 +50,17 @@
 
 完成标准：
 
-1. 新插件包可以安装依赖并构建；
-2. simulator 显示“无声之声已连接”；
-3. 手机伴随界面能配置 backend 地址；
-4. `/health` 状态能显示；
-5. 文档写明启动命令；
-6. 不影响 `config-app/` 和 `glasses-app/`。
+1. 真机 HUD 显示首屏；
+2. R1 和镜腿事件映射经实测确认；
+3. G2 PCM 约为 32000 bytes/s 且可识别中文；
+4. 手机 WebView 能播放 `/tts` MP3；
+5. 紧急手势能在所有状态抢占旧流程；
+6. 端到端延迟有实测记录。
 
 ## 第二到第五项任务
 
-按顺序推进，不能跳步：
-
-1. 固定文本 → `/candidates` → HUD 四候选；
-2. R1/模拟事件 → 高亮、确认、换批；
-3. G2 PCM → `/asr` → `/candidates`；
-4. `/tts` MP3 → 手机扬声器；
-5. profile 手机控制页 + 断网兜底 + 延迟测试。
-
-每完成一步都保留独立可演示状态。
+固定文本、API、状态机、手机控制页和断网兜底已经实现。后续按联调结果做最小
+修正，每完成一层都保留独立可演示状态，不能为了猜测硬件行为大改接口。
 
 ## 技术约束
 
@@ -126,10 +122,10 @@ npm --workspace backend test
 npx tsc --noEmit -p backend/tsconfig.json
 ```
 
-插件代码初始化后必须补充实际命令，并至少执行：
+插件改动后必须执行：
 
 ```bash
-npm run build
+npm --workspace even-hub-plugin run pack
 ```
 
 如果改动影响旧工程，还要执行：
@@ -145,4 +141,3 @@ cd config-app && npm run typecheck
 - Even G2 真机已验证；
 - R1 真机已验证；
 - 仍属于假数据或降级路径。
-

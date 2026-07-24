@@ -40,15 +40,16 @@ async function post<T>(path: string, body: unknown, timeoutMs: number): Promise<
 }
 
 export async function fetchHealth(): Promise<HealthStatus | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 3000);
     const res = await fetch(`${getBackendUrl()}/health`, { signal: ctrl.signal });
-    clearTimeout(timer);
     if (!res.ok) return null;
     return (await res.json()) as HealthStatus;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -86,19 +87,26 @@ export async function fetchTts(text: string, voice?: string): Promise<TtsRespons
 }
 
 export async function fetchProfile(): Promise<UserProfile> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 3000);
     const res = await fetch(`${getBackendUrl()}/profile?userId=${USER_ID}`, { signal: ctrl.signal });
-    clearTimeout(timer);
     if (!res.ok) throw new Error(`profile HTTP ${res.status}`);
     const profile = (await res.json()) as UserProfile;
     cacheProfile(JSON.stringify(profile)); // 断网兜底缓存
     return profile;
   } catch {
     const cached = readCachedProfile();
-    if (cached) return JSON.parse(cached) as UserProfile;
+    if (cached) {
+      try {
+        return JSON.parse(cached) as UserProfile;
+      } catch {
+        // localStorage 被旧版本/手工内容污染时回到安全默认值
+      }
+    }
     return { userId: USER_ID, commonPhrases: [] };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

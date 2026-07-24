@@ -46,19 +46,38 @@ function gridKey(lat: number, lon: number): string {
  * 反查场景标签；识别不出有意义的场景返回 null（调用方直接忽略）。
  */
 export async function resolveScene(lat: number, lon: number): Promise<string | null> {
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lon) ||
+    lat < -90 ||
+    lat > 90 ||
+    lon < -180 ||
+    lon > 180
+  ) {
+    return null;
+  }
   const key = gridKey(lat, lon);
   if (cache.has(key)) return cache.get(key)!;
 
   let scene: string | null = null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-    const url = `${NOMINATIM_URL}?lat=${lat}&lon=${lon}&format=jsonv2&zoom=18&accept-language=zh`;
+    const url = new URL(NOMINATIM_URL);
+    url.search = new URLSearchParams({
+      lat: String(lat),
+      lon: String(lon),
+      format: 'jsonv2',
+      zoom: '18',
+      'accept-language': 'zh',
+    }).toString();
     const res = await fetch(url, {
       signal: ctrl.signal,
-      headers: { 'User-Agent': 'voice-for-the-voiceless/0.1 (hackathon demo)' },
+      headers: {
+        'User-Agent':
+          'voice-for-the-voiceless/0.1 (+https://github.com/Lee6wang/voice-for-the-voiceless)',
+      },
     });
-    clearTimeout(timer);
     if (res.ok) {
       const data = (await res.json()) as { type?: string; category?: string; name?: string };
       scene = OSM_SCENE[data.type ?? ''] ?? null;
@@ -67,6 +86,8 @@ export async function resolveScene(lat: number, lon: number): Promise<string | n
     }
   } catch {
     scene = null; // 断网/超时：场景只是加分项，静默放弃
+  } finally {
+    clearTimeout(timer);
   }
   cache.set(key, scene);
   return scene;

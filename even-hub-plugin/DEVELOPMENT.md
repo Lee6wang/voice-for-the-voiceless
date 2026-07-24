@@ -1,6 +1,6 @@
 # 无声之声 Even Hub 插件开发文档
 
-> 状态：架构已确定，插件运行时代码尚未初始化  
+> 状态：MVP 运行时代码已完成，构建/打包通过，G2/R1 真机待联调
 > 更新：2026-07-24  
 > 目标：用 Even Hub 插件替代独立配置 App 成为唯一主客户端
 
@@ -84,6 +84,13 @@ Even 插件。它没有接入真实 Even Hub SDK。
 - profile JSON 持久化；
 - 22 类模板规则；
 - backend 与插件两层兜底所需共享函数。
+
+### `even-hub-plugin/` 当前实现
+
+已经完成 `src/main.ts`、`session.ts`、`hud.ts`、`audio.ts`、`api.ts`、
+`context.ts` 和手机控制页。`npm run build` 与 `npm run pack` 已通过。后续
+工作不是重新搭骨架，而是依照 `../docs/联调指南.md` 验证真实 G2/R1 事件、
+PCM、手机 WebView 播放和端到端延迟。
 
 ## 4. 后端接口
 
@@ -239,9 +246,9 @@ IDLE
 配置优先保存在 backend；同时可在 `localStorage` 留一份缓存，backend 断开时
 仍能读取紧急表达和个性化模板。
 
-## 7. 开发顺序
+## 7. 已实现阶段与下一步
 
-### Phase 0：验证官方模板，不写业务
+### Phase 0：官方运行时验证（代码已接，真机待验）
 
 1. 注册 Even Hub 开发者账号。
 2. 安装官方 CLI、SDK 和 simulator。
@@ -256,7 +263,7 @@ IDLE
 不要先复制旧 `glasses-app`；应以官方 `asr` 模板为运行时底座，再把本项目状态机
 和接口调用迁入。
 
-### Phase 1：建立插件最小工程
+### Phase 1：建立插件最小工程（已实现）
 
 把官方 ASR 模板的运行时代码引入本目录，同时保留本文件和 `AGENTS.md`。
 
@@ -267,7 +274,7 @@ IDLE
 3. 手机控制页能请求 backend `/health`；
 4. HUD 能显示“无声之声已连接”。
 
-### Phase 2：打通假文本候选
+### Phase 2：打通假文本候选（已实现）
 
 先不碰音频：
 
@@ -279,7 +286,7 @@ IDLE
 
 验收重点是 HUD 和戒指，不是模型。
 
-### Phase 3：接真实采音与 ASR
+### Phase 3：接真实采音与 ASR（代码已实现，真机待验）
 
 1. 使用官方 ASR 模板的 PCM 回调；
 2. 累积 3～5 秒 PCM；
@@ -290,7 +297,7 @@ IDLE
 
 第一轮使用整段识别，不做 WebSocket 流式 ASR。
 
-### Phase 4：接手机 TTS
+### Phase 4：接手机 TTS（代码已实现，真机待验）
 
 1. 在手机控制页点击“启用声音”；
 2. 用固定 base64 MP3 验证播放；
@@ -305,7 +312,7 @@ IDLE
 2. 保留的 `config-app` 负责播放；
 3. 现场外接一个简单网页播放器。
 
-### Phase 5：断网和演示
+### Phase 5：断网和演示（本地兜底已实现，真机与延迟待验）
 
 1. backend 的 LLM 断开：应返回模板候选；
 2. backend 完全断开：插件用本地 `shared` 模板；
@@ -315,12 +322,14 @@ IDLE
 
 ## 8. 本地联调
 
+完整逐步流程和记录表以 [联调指南](../docs/联调指南.md) 为准。
+
 启动 backend：
 
 ```bash
 cd /Users/hyj/workspace/project/03_AdvX/voice-for-the-voiceless
 npm install
-cp backend/env.example backend/.env
+test -f backend/.env || cp backend/env.example backend/.env
 npm run dev:backend
 ```
 
@@ -352,13 +361,14 @@ http://<Mac 当前局域网 IP>:8787
 - [ ] 官方 minimal 模板在 simulator 显示
 - [ ] 官方 ASR 模板收到真实 G2 PCM
 - [ ] R1 tap/swipe/double-tap 事件已确认
-- [ ] 插件手机控制页可读写 profile
-- [ ] 固定文本可以生成并显示 4 个候选
+- [x] 插件手机控制页读写 profile 的代码链路和类型检查
+- [x] 固定文本生成并显示 4 个候选的代码链路
 - [ ] 真实 G2 语音可以经 `/asr` 转写
 - [ ] 候选可以由 R1 高亮和确认
 - [ ] 手机能播放 `/tts` 返回的 MP3
-- [ ] SPEAKING 期间没有回声重识别
-- [ ] backend 断开时本地模板仍可显示
+- [x] SPEAKING 期间代码会停止采音（真机仍需确认无回声）
+- [x] backend 断开时插件端有本地模板路径
+- [x] 插件构建和 `.ehpk` 打包通过
 - [ ] 端到端延迟实测 ≤5 秒
 - [ ] 已录制备用 Demo 视频
 
@@ -370,4 +380,3 @@ http://<Mac 当前局域网 IP>:8787
 - ASR 模型不进入 Git，新电脑必须单独下载。
 - Even Hub 发布条款目前限制医疗/健康类插件；比赛可先走开发者 QR 测试，
   对外口径保持“社交表达辅助”，不要宣传诊断或治疗功能。
-

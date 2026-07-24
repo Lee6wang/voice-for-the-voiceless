@@ -8,7 +8,8 @@
   "entrypoint": "index.html",
   "permissions": [
     { "name": "g2-microphone", "desc": "Capture speech from the glasses mic to generate reply candidates." },
-    { "name": "network", "desc": "Call the Voiceless backend for ASR/LLM/TTS.", "whitelist": ["http://172.20.10.14:8787", "http://localhost:8787", "http://127.0.0.1:8787"] }
+    { "name": "location", "desc": "Optionally identify the current scene after the user enables automatic location." },
+    { "name": "network", "desc": "Call the Voiceless backend for ASR/LLM/TTS.", "whitelist": ["http://10.80.13.105:8787", "http://172.20.10.14:8787", "http://localhost:8787", "http://127.0.0.1:8787"] }
   ],
-  "supported_languages": ["en"]
+  "supported_languages": ["zh", "en"]
 }

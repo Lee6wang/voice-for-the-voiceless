@@ -11,7 +11,8 @@ const SCENE_KEY = 'vftv.scene'; // 'auto' = GPS 自动 / '' = 关闭 / 其他 = 
 export const SCENE_OPTIONS = ['餐厅', '咖啡馆', '医院', '学校', '超市', '车站', '公司', '家里'];
 
 export function getSceneSetting(): string {
-  return localStorage.getItem(SCENE_KEY) ?? 'auto';
+  // 定位必须由用户主动选择开启；默认只使用时间，不触发位置权限弹窗。
+  return localStorage.getItem(SCENE_KEY) ?? '';
 }
 
 export function setSceneSetting(value: string): void {

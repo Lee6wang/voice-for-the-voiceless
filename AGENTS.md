@@ -55,7 +55,7 @@ git status --short --branch
 
 | 目录 | 状态 | 用途 |
 |---|---|---|
-| `even-hub-plugin/` | 文档已建，运行时代码未初始化 | 新的 Even Hub 主插件 |
+| `even-hub-plugin/` | MVP 已实现，构建/打包通过，真机待验 | 新的 Even Hub 主插件 |
 | `backend/` | 核心能力已实现 | ASR、LLM、TTS、profile |
 | `shared/` | 可用 | 共享类型和 22 类模板 |
 | `config-app/` | 安卓模拟器已跑通，现冻结 | 备用配置入口 |
@@ -93,7 +93,7 @@ git status --short --branch
 - TTS 返回有效 MP3；
 - ASR 模型成功初始化并处理 PCM 请求；
 - profile 写入并在重启后恢复；
-- 候选解析器有 6 个回归测试。
+- 候选解析器与 ASR 静音门共有 8 个回归测试。
 
 注意：
 
@@ -118,20 +118,27 @@ git status --short --branch
 - 没有真实 Even Hub SDK；
 - 没有真实 G2 采音、HUD、R1 和手机发声。
 
+### even-hub-plugin
+
+- Even Bridge、HUD、G2 PCM 收集、R1/镜腿事件路由；
+- `/health`、`/profile`、`/asr`、`/candidates`、`/tts` 客户端；
+- 手机控制页、声音解锁、profile 缓存、时间/场景上下文；
+- 本地模板兜底、三级发声降级、紧急手势抢占；
+- TypeScript/Vite 构建和 `.ehpk` 打包已通过。
+
+以上是代码和打包状态，不代表 G2/R1 真机已经验证。
+
 ## 5. 当前未完成
 
-最主要缺口只有客户端硬件闭环：
+最主要缺口是客户端硬件验收：
 
-1. 从 Even 官方 ASR 模板初始化 `even-hub-plugin` 运行时；
-2. simulator HUD；
-3. G2 PCM 采集；
-4. R1/镜腿真实事件；
-5. 插件手机控制页；
-6. `/tts` MP3 在手机 WebView 播放；
-7. SPEAKING 防回声；
-8. backend 完全不可达时的插件本地模板；
-9. 端到端延迟测量；
-10. 真机排练和备用视频。
+1. simulator 与真机 HUD；
+2. G2 PCM 格式和中文识别准确率；
+3. R1/镜腿真实事件源和方向；
+4. `/tts` MP3 在手机 WebView 播放；
+5. SPEAKING 防回声实测；
+6. 端到端延迟测量；
+7. 真机排练和备用视频。
 
 不要继续重复开发 backend ASR、LLM 或 TTS，除非实际联调发现接口缺陷。
 
@@ -143,18 +150,8 @@ git status --short --branch
 even-hub-plugin/
 ```
 
-先读该目录 `DEVELOPMENT.md` 和 `AGENTS.md`，按以下顺序：
-
-1. 官方 minimal/ASR 模板 → simulator；
-2. `/health`；
-3. 固定文本 → `/candidates` → HUD；
-4. 模拟/R1 事件 → 高亮与确认；
-5. G2 PCM → `/asr`；
-6. `/tts` → 手机扬声器；
-7. 插件手机控制页 → `/profile`；
-8. 断网兜底和延迟测试。
-
-每一步都必须独立可演示，不能同时铺开。
+先读该目录 `DEVELOPMENT.md`、`AGENTS.md` 和 `docs/联调指南.md`。代码链路已
+搭好，下一步从桥/HUD开始逐层做真机联调并记录结果；不要重新初始化工程。
 
 ## 7. 关键交互不变
 
@@ -177,7 +174,7 @@ npm install
 backend：
 
 ```bash
-cp backend/env.example backend/.env
+test -f backend/.env || cp backend/env.example backend/.env
 npm run dev:backend
 curl http://127.0.0.1:8787/health
 ```
@@ -230,7 +227,12 @@ git diff --check
 git status --short
 ```
 
-插件代码初始化后，还必须运行其自己的 build/test。
+插件改动后还必须运行自己的打包检查。
+插件当前交付命令为：
+
+```bash
+npm --workspace even-hub-plugin run pack
+```
 
 汇报时明确区分：
 
@@ -238,4 +240,3 @@ git status --short
 - 类型检查或 simulator 已通过；
 - Even G2 真机已通过；
 - Even R1 真机已通过。
-

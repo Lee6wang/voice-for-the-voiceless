@@ -14,7 +14,7 @@
 # 在仓库根执行一次
 npm install
 # 复制配置样例；LLM_API_KEY 留空时 /candidates 自动走模板库
-cp backend/env.example backend/.env
+test -f backend/.env || cp backend/env.example backend/.env
 # 起服务
 npm run dev:backend            # 或：npm --workspace backend run dev
 ```

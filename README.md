@@ -17,7 +17,8 @@
 > 不再需要自研 Android/iOS App 作为主客户端，但仍需要官方 Even Realities App
 > 连接 G2/R1 并承载插件。开发和比赛 Demo 阶段 backend 可运行在 Mac；正式部署再迁移云端。
 > 新插件方案见 [even-hub-plugin/DEVELOPMENT.md](even-hub-plugin/DEVELOPMENT.md)，
-> 模块协议见 [docs/接口契约.md](docs/接口契约.md)。
+> 联调步骤见 [docs/联调指南.md](docs/联调指南.md)，模块协议见
+> [docs/接口契约.md](docs/接口契约.md)。
 
 ## 仓库结构
 
@@ -25,27 +26,28 @@
 ├── docs/          方案 / 接口契约 / 赛道信息
 ├── content/       内容与运营：小红书 Build in Public、对外文案（C）
 ├── shared/        接口契约单一真相源：共享类型 + 模板库（插件与 backend 共用）
-├── even-hub-plugin/ 新的 Even Hub 主插件（文档已建，运行时代码待初始化）
+├── even-hub-plugin/ Even Hub 主插件（MVP 已实现，真机待联调）
 ├── glasses-app/   旧浏览器状态机骨架，保留参考
 ├── backend/       Node/TS：ASR + LLM + TTS + profile（B）
 └── config-app/    已跑通的 React Native 安卓配置 App，保留为备用（B）
 ```
-根为 npm workspaces monorepo（shared/backend/glasses-app）；config-app 为 Expo 独立工程（自管依赖）。
+根为 npm workspaces monorepo（shared/backend/glasses-app/even-hub-plugin）；
+config-app 为 Expo 独立工程（自管依赖）。
 
 ## 快速开始（协作者）
 
 ```bash
-npm install                 # 根目录一次，装好 shared/backend/glasses-app
-cp backend/env.example backend/.env # 如需真实 LLM，填入 LLM_API_KEY
+npm install                 # 根目录一次，装好 shared/backend/glasses-app/even-hub-plugin
+test -f backend/.env || cp backend/env.example backend/.env # 仅首次初始化
 npm run dev:backend         # 起后端(:8787)
 curl http://127.0.0.1:8787/health
 ```
 
-离线 ASR 模型首次安装见 `backend/models/README.md`。新插件从
-`even-hub-plugin/DEVELOPMENT.md` 开始，优先采用 Even 官方 ASR 模板。
+离线 ASR 模型首次安装见 `backend/models/README.md`。插件开发与真机验收从
+`even-hub-plugin/DEVELOPMENT.md` 和 `docs/联调指南.md` 开始。
 
 **先读**：`AGENTS.md` + `even-hub-plugin/DEVELOPMENT.md` +
-`docs/接口契约.md`。
+`docs/联调指南.md` + `docs/接口契约.md`。
 
 **分工**：A→Even Hub 插件；B→backend（config-app 冻结备用）；C→content。
 
