@@ -6,6 +6,8 @@ import {
   type AsrRequest,
   type AsrResponse,
   type Candidate,
+  type CandidateFeedbackRequest,
+  type CandidateFeedbackResponse,
   type CandidateSet,
   type CandidatesRequest,
   type CandidatesResponse,
@@ -66,9 +68,12 @@ import {
   playEmergencyTwice,
   type FlowToken,
 } from './flow';
+import { buildPlayedFeedback, isPlayedFeedback } from './feedback';
 import type { PlaybackResult } from './playback';
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8787';
+const DEVICE_ID_KEY = 'device_id';
+const FEEDBACK_OUTBOX_KEY = 'feedback_outbox';
 const PROFILE_KEY = 'profile';
 const SETTINGS_KEY = 'settings';
 const ONBOARD_KEY = 'onboarded';
@@ -76,6 +81,16 @@ const HEALTH_TIMEOUT_MS = 2000;
 const ASR_TIMEOUT_MS = 2000;
 const CANDIDATES_TIMEOUT_MS = 2800;
 const TTS_TIMEOUT_MS = 7000;
+const FEEDBACK_TIMEOUT_MS = 1500;
+const FEEDBACK_OUTBOX_MAX = 50;
+
+function runtimeId(prefix: string): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  const suffix = uuid ?? `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  return `${prefix}_${suffix}`;
+}
+
+const SESSION_ID = runtimeId('session');
 
 let state: UiState = 'IDLE';
 let profile: UserProfile = { userId: 'demo', commonPhrases: [] };
@@ -86,6 +101,8 @@ let emergencyActive = false;
 let activeGroup = 0;
 let history: ConversationTurn[] = [];
 let prewarmController: AbortController | null = null;
+let feedbackOutbox: CandidateFeedbackRequest[] = [];
+let feedbackFlushing = false;
 
 let diagnostics: DiagnosticsSnapshot = {
   hubMode: 'browser',
@@ -425,6 +442,7 @@ async function getCandidates(
     };
     const body: CandidatesRequest = {
       turnId,
+      sessionId: SESSION_ID,
       heardText,
       profile: profileForRequest,
       exclude,
@@ -464,6 +482,65 @@ async function getCandidates(
   }
 }
 
+async function persistFeedbackOutbox(): Promise<void> {
+  await kvsSet(FEEDBACK_OUTBOX_KEY, JSON.stringify(feedbackOutbox));
+}
+
+async function enqueueFeedback(body: CandidateFeedbackRequest): Promise<void> {
+  if (!feedbackOutbox.some((item) => item.eventId === body.eventId)) {
+    feedbackOutbox.push(body);
+    if (feedbackOutbox.length > FEEDBACK_OUTBOX_MAX) {
+      feedbackOutbox = feedbackOutbox.slice(-FEEDBACK_OUTBOX_MAX);
+    }
+    try {
+      await persistFeedbackOutbox();
+    } catch {
+      /* 内存队列仍可立即尝试发送 */
+    }
+  }
+  await flushFeedbackOutbox();
+}
+
+async function flushFeedbackOutbox(): Promise<void> {
+  if (feedbackFlushing || settings.offlineMode || feedbackOutbox.length === 0) return;
+  feedbackFlushing = true;
+  try {
+    while (feedbackOutbox.length > 0 && !settings.offlineMode) {
+      const body = feedbackOutbox[0];
+      await fetchJson<CandidateFeedbackResponse>(
+        `${BACKEND}/agent/feedback`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+        FEEDBACK_TIMEOUT_MS,
+      );
+      feedbackOutbox.shift();
+      await persistFeedbackOutbox();
+    }
+  } catch (error) {
+    // 保留队首，下次健康检查、启动或新反馈时用同一 eventId 重试。
+    console.warn('[memory] feedback queued for retry:', errorMessage(error));
+  } finally {
+    feedbackFlushing = false;
+  }
+}
+
+function reportPlayedFeedback(turn: CandidateSet, chosen: Candidate): void {
+  const body = buildPlayedFeedback({
+    sessionId: SESSION_ID,
+    userId: profile.userId,
+    turn,
+    chosen,
+    context: buildContext(),
+    offlineMode: settings.offlineMode,
+  });
+  if (!body) return;
+  // 学习是加分项：入本地 outbox 后异步发送，不影响已完成的发声与主流程。
+  void enqueueFeedback(body);
+}
+
 async function confirmAndSpeak(): Promise<void> {
   if (state !== 'CANDIDATES' || !current) return;
   const chosen = current.candidates[current.highlightIndex];
@@ -471,7 +548,6 @@ async function confirmAndSpeak(): Promise<void> {
 
   const turn = current;
   const flow = beginFlow();
-  bumpUsage(chosen.text);
   setState('SPEAKING');
   renderPage(speakingScreen(chosen.text));
   const result = await speak(chosen.text, flow.signal);
@@ -485,6 +561,8 @@ async function confirmAndSpeak(): Promise<void> {
     return;
   }
 
+  bumpUsage(chosen.text);
+  reportPlayedFeedback(turn, chosen);
   if (
     !turn.turnId.startsWith('active_') &&
     !turn.turnId.startsWith('privacy_') &&
@@ -644,20 +722,46 @@ function setState(next: UiState): void {
 
 // ---- KVS ----
 
-async function loadProfile(): Promise<UserProfile> {
+async function loadDeviceId(): Promise<string> {
+  try {
+    const stored = (await kvsGet(DEVICE_ID_KEY))?.trim();
+    if (stored) return stored;
+  } catch {
+    /* 读取失败时生成新 id */
+  }
+  const generated = runtimeId('device');
+  await kvsSet(DEVICE_ID_KEY, generated);
+  return generated;
+}
+
+async function loadFeedbackOutbox(): Promise<void> {
+  try {
+    const raw = await kvsGet(FEEDBACK_OUTBOX_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return;
+    feedbackOutbox = parsed.filter(isPlayedFeedback).slice(-FEEDBACK_OUTBOX_MAX);
+  } catch {
+    feedbackOutbox = [];
+  }
+}
+
+async function loadProfile(userId: string): Promise<UserProfile> {
   try {
     const raw = await kvsGet(PROFILE_KEY);
     if (raw) {
-      return {
-        userId: 'demo',
+      const parsed = JSON.parse(raw) as Partial<UserProfile>;
+      const migrated: UserProfile = {
         commonPhrases: [],
-        ...(JSON.parse(raw) as Partial<UserProfile>),
+        ...parsed,
+        userId,
       };
+      if (parsed.userId !== userId) await kvsSet(PROFILE_KEY, JSON.stringify(migrated));
+      return migrated;
     }
   } catch {
     /* 解析失败用默认 */
   }
-  return { userId: 'demo', commonPhrases: [] };
+  return { userId, commonPhrases: [] };
 }
 
 async function saveProfile(next: UserProfile): Promise<void> {
@@ -933,6 +1037,7 @@ async function checkHealth(): Promise<void> {
     );
     if (!health.ok) throw new Error('health.ok=false');
     updateDiagnostics({ backendState: 'ready', health });
+    void flushFeedbackOutbox();
   } catch (error) {
     updateDiagnostics({
       backendState: 'unreachable',
@@ -943,8 +1048,10 @@ async function checkHealth(): Promise<void> {
 }
 
 initHub().then(async (hubMode: HubMode) => {
-  profile = await loadProfile();
+  const userId = await loadDeviceId();
+  profile = await loadProfile(userId);
   settings = await loadSettings();
+  await loadFeedbackOutbox();
   await loadUsage();
   const onboarded = (await kvsGet(ONBOARD_KEY)) === '1';
   const byUsage = (a: string, b: string) => usageOf(b) - usageOf(a);
@@ -961,13 +1068,14 @@ initHub().then(async (hubMode: HubMode) => {
     settings,
     onboarded,
     onSave: (nextProfile, nextSettings) => {
-      profile = nextProfile;
+      profile = { ...nextProfile, userId: profile.userId };
       settings = normalizeSettings(nextSettings);
       void saveProfile(profile);
       void saveSettings(settings);
       setMirror(settings.mirrorHud);
       renderQuickPhrases(effectivePhrases(), byUsage);
       void checkHealth();
+      void flushFeedbackOutbox();
       prewarmTts();
     },
     onSceneChange: (scene) => {
@@ -982,7 +1090,6 @@ initHub().then(async (hubMode: HubMode) => {
     onSpeakPhrase: async (text) => {
       if (state !== 'IDLE') return;
       const flow = beginFlow();
-      bumpUsage(text);
       setState('SPEAKING');
       renderPage(speakingScreen(text));
       const result = await speak(text, flow.signal);
@@ -994,6 +1101,7 @@ initHub().then(async (hubMode: HubMode) => {
         finishFlow(flow);
         return;
       }
+      bumpUsage(text);
       renderPage(confirmedScreen(text));
       if (!(await sleepWithSignal(2000, flow.signal)) || !flowIsActive(flow)) return;
       setState('IDLE');
@@ -1015,6 +1123,7 @@ initHub().then(async (hubMode: HubMode) => {
   onInput(handleInput);
   renderPage(idleScreen());
   void checkHealth();
+  void flushFeedbackOutbox();
   prewarmTts();
 });
 

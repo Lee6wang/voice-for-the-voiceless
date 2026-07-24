@@ -13,6 +13,7 @@ import {
 } from '@vftv/shared';
 import { resolveScene } from './providers/geo';
 import { chatComplete, loadLlmConfig } from './providers/llm';
+import type { RecalledBehaviorMemory } from './memory-store';
 
 const TONE_LABEL: Record<NonNullable<UserProfile['tone']>, string> = {
   gentle: '温和、体贴，多用缓和语气词',
@@ -21,7 +22,10 @@ const TONE_LABEL: Record<NonNullable<UserProfile['tone']>, string> = {
 };
 
 /** 拼 system prompt：让 LLM「用这个用户的方式」说话（导出供单测） */
-export function buildSystemPrompt(profile: UserProfile): string {
+export function buildSystemPrompt(
+  profile: UserProfile,
+  memories: RecalledBehaviorMemory[] = [],
+): string {
   const lines = [
     '你替一位不方便开口说话的用户生成口头回复候选。',
     `严格输出 JSON 字符串数组，恰好 ${CANDIDATE_COUNT} 条，不要输出其他任何内容。`,
@@ -47,6 +51,13 @@ export function buildSystemPrompt(profile: UserProfile): string {
   }
   if (profile.avoidWords && profile.avoidWords.length > 0) {
     lines.push(`禁止出现以下字眼或话题：${profile.avoidWords.join('、')}。`);
+  }
+  if (memories.length > 0) {
+    lines.push(
+      `用户过去实际选中并成功说出的表达：${memories
+        .map((memory) => `${memory.text}（${memory.playCount}次）`)
+        .join('、')}。情境合适时优先沿用其措辞，但不要为了使用记忆而答非所问。`,
+    );
   }
   return lines.join('\n');
 }
@@ -153,6 +164,7 @@ export async function generateCandidates(
   context?: SceneContext,
   mode: InteractionMode = 'reply',
   history?: ConversationTurn[],
+  memories: RecalledBehaviorMemory[] = [],
 ): Promise<Candidate[]> {
   const cfg = loadLlmConfig();
   if (!cfg) throw new Error('LLM_API_KEY not configured');
@@ -162,7 +174,7 @@ export async function generateCandidates(
   }
   const raw = await chatComplete(
     cfg,
-    buildSystemPrompt(profile),
+    buildSystemPrompt(profile, memories),
     buildUserPrompt(heardText, exclude, context, mode, history),
   );
   const candidates = sanitizeCandidates(parseCandidateTexts(raw), heardText, exclude);

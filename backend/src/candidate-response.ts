@@ -9,6 +9,7 @@ import {
   type UserProfile,
 } from '@vftv/shared';
 import { generateCandidates } from './candidates';
+import type { RecalledBehaviorMemory } from './memory-store';
 
 export type CandidateGenerator = (
   heardText: string,
@@ -17,6 +18,7 @@ export type CandidateGenerator = (
   context?: SceneContext,
   mode?: InteractionMode,
   history?: ConversationTurn[],
+  memories?: RecalledBehaviorMemory[],
 ) => Promise<Candidate[]>;
 
 /**
@@ -32,6 +34,7 @@ export async function createCandidatesResponse(
       error instanceof Error ? error.message : error,
     );
   },
+  memories: RecalledBehaviorMemory[] = [],
 ): Promise<CandidatesResponse> {
   const {
     turnId,
@@ -50,6 +53,7 @@ export async function createCandidatesResponse(
       context,
       mode,
       history,
+      memories,
     );
     return { turnId, candidates, source: 'llm' };
   } catch (error) {

@@ -103,6 +103,8 @@ export interface ConversationTurn {
 
 export interface CandidatesRequest {
   turnId: string;
+  /** 一次 App 运行期的稳定会话 id；旧客户端可不传。 */
+  sessionId?: string;
   heardText: string;
   profile: UserProfile;
   /** 换一批时传，避免重复 */
@@ -119,6 +121,36 @@ export interface CandidatesResponse {
   candidates: Candidate[];
   /** 候选由真实 LLM 或 backend 模板库生成；旧 backend 可不返回。 */
   source?: 'llm' | 'template';
+  /** 本轮注入了多少条长期行为记忆；诊断字段，旧客户端可忽略。 */
+  memoryUsed?: number;
+}
+
+/** 候选生命周期反馈；第一版只有 played 会形成长期偏好。 */
+export type CandidateFeedbackEvent =
+  | 'displayed'
+  | 'refreshed'
+  | 'selected'
+  | 'played'
+  | 'play_failed';
+
+/** POST /agent/feedback：独立于 /candidates 的加性接口，旧客户端无需调用。 */
+export interface CandidateFeedbackRequest {
+  /** 客户端生成并在重试时复用，backend 以此保证幂等。 */
+  eventId: string;
+  userId: string;
+  sessionId: string;
+  turnId: string;
+  candidateId: string;
+  text: string;
+  event: CandidateFeedbackEvent;
+  context?: SceneContext;
+  mode?: InteractionMode;
+}
+
+export interface CandidateFeedbackResponse {
+  ok: true;
+  /** true 表示同一 eventId 已处理，本次未重复学习。 */
+  duplicate: boolean;
 }
 
 export interface TtsRequest {
@@ -138,6 +170,8 @@ export interface HealthResponse {
   llm: boolean;
   tts: boolean;
   asr: boolean;
+  /** SQLite 记忆层是否已初始化；旧 backend 可不返回。 */
+  memory?: boolean;
   uptime: number;
 }
 

@@ -108,6 +108,15 @@ test('buildSystemPrompt injects structured profile fields', () => {
   assert.match(prompt, /稍后回你/); // commonPhrases
 });
 
+test('buildSystemPrompt injects only recalled successful behavior memory', () => {
+  const prompt = buildSystemPrompt(
+    { userId: 'demo', commonPhrases: [] },
+    [{ text: '温水就好', playCount: 3, score: 12 }],
+  );
+  assert.match(prompt, /温水就好（3次）/);
+  assert.match(prompt, /不要为了使用记忆而答非所问/);
+});
+
 test('buildUserPrompt adds partner and renders recent history in reply mode', () => {
   const prompt = buildUserPrompt(
     '你中午想吃什么？',
