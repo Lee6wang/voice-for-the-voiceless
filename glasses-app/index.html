@@ -36,10 +36,7 @@
             </span>
           </div>
           <button id="btn-config" class="icon-button" type="button" aria-label="打开个性化配置">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M12 15.25A3.25 3.25 0 1 0 12 8.75a3.25 3.25 0 0 0 0 6.5Z" />
-              <path d="M19 13.2v-2.4l-2-.7a7.4 7.4 0 0 0-.6-1.4l.9-1.9-1.7-1.7-1.9.9a7.4 7.4 0 0 0-1.4-.6L11.6 3H9.2l-.7 2a7.4 7.4 0 0 0-1.4.6l-1.9-.9-1.7 1.7.9 1.9a7.4 7.4 0 0 0-.6 1.4l-2 .7v2.4l2 .7c.1.5.3 1 .6 1.4l-.9 1.9 1.7 1.7 1.9-.9c.4.3.9.5 1.4.6l.7 2h2.4l.7-2c.5-.1 1-.3 1.4-.6l1.9.9 1.7-1.7-.9-1.9c.3-.4.5-.9.6-1.4l2-.7Z" />
-            </svg>
+            <span class="icon-host" data-icon="settings"></span>
           </button>
         </div>
       </header>
@@ -55,7 +52,7 @@
             <span class="orb-ring orb-ring-outer"></span>
             <span class="orb-ring orb-ring-inner"></span>
             <span class="orb-core">
-              <i></i><i></i><i></i><i></i><i></i>
+              <span class="status-icon icon-host" id="status-icon" data-icon="idle"></span>
             </span>
           </div>
           <div class="hero-foot">
@@ -74,10 +71,18 @@
           <div class="control-block">
             <span class="control-label">当前场景</span>
             <div class="segmented-control" aria-label="选择当前场景">
-              <button class="scene-chip active" type="button" data-scene="default">通用</button>
-              <button class="scene-chip" type="button" data-scene="work">工作</button>
-              <button class="scene-chip" type="button" data-scene="dining">点餐</button>
-              <button class="scene-chip" type="button" data-scene="social">聚会</button>
+              <button class="scene-chip active" type="button" data-scene="default">
+                <span class="icon-host" data-icon="scene-default"></span><span>通用</span>
+              </button>
+              <button class="scene-chip" type="button" data-scene="work">
+                <span class="icon-host" data-icon="scene-work"></span><span>工作</span>
+              </button>
+              <button class="scene-chip" type="button" data-scene="dining">
+                <span class="icon-host" data-icon="scene-dining"></span><span>点餐</span>
+              </button>
+              <button class="scene-chip" type="button" data-scene="social">
+                <span class="icon-host" data-icon="scene-social"></span><span>聚会</span>
+              </button>
             </div>
           </div>
           <label class="select-field" for="partner-select">
@@ -138,32 +143,17 @@
           </div>
           <div class="mode-grid">
             <article class="mode-tile">
-              <span class="mode-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 3a4 4 0 0 0-4 4v4a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4Z" />
-                  <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" />
-                </svg>
-              </span>
+              <span class="mode-icon icon-host" data-icon="listening"></span>
               <strong>应答</strong>
               <span>轻点 R1 开始聆听</span>
             </article>
             <article class="mode-tile">
-              <span class="mode-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M5 6h14v10H8l-3 3V6Z" />
-                  <path d="M8 10h8M8 13h5" />
-                </svg>
-              </span>
+              <span class="mode-icon icon-host" data-icon="candidates"></span>
               <strong>主动</strong>
               <span>双击 R1 打开短语</span>
             </article>
             <article class="mode-tile danger">
-              <span class="mode-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 3 2.8 19h18.4L12 3Z" />
-                  <path d="M12 9v4M12 16h.01" />
-                </svg>
-              </span>
+              <span class="mode-icon icon-host" data-icon="emergency"></span>
               <strong>紧急求助</strong>
               <span>镜腿双击立即呼救</span>
             </article>
@@ -340,7 +330,12 @@
           </summary>
           <div class="settings-body">
             <fieldset class="field-group compact-group">
-              <legend>聆听时长</legend>
+              <legend>
+                <span class="legend-label">
+                  <span class="legend-icon icon-host" data-icon="timer"></span>
+                  <span>聆听时长</span>
+                </span>
+              </legend>
               <div class="option-segments">
                 <label><input type="radio" name="f-listen" value="3" /><span>3 秒</span></label>
                 <label><input type="radio" name="f-listen" value="4" checked /><span>4 秒</span></label>
@@ -350,17 +345,26 @@
 
             <div class="toggle-list">
               <label class="toggle-row">
-                <span><strong>两步确认</strong><small>候选选中后再点一下才说出，降低误触</small></span>
+                <span class="toggle-copy">
+                  <span class="toggle-icon icon-host" data-icon="confirmed"></span>
+                  <span><strong>两步确认</strong><small>候选选中后再点一下才说出，降低误触</small></span>
+                </span>
                 <input type="checkbox" id="f-twostep" checked />
                 <i aria-hidden="true"></i>
               </label>
               <label class="toggle-row">
-                <span><strong>手机镜像眼镜画面</strong><small>演示时开启，默认关闭以保护隐私</small></span>
+                <span class="toggle-copy">
+                  <span class="toggle-icon icon-host" data-icon="mirror"></span>
+                  <span><strong>手机镜像眼镜画面</strong><small>演示时开启，默认关闭以保护隐私</small></span>
+                </span>
                 <input type="checkbox" id="f-mirror" />
                 <i aria-hidden="true"></i>
               </label>
               <label class="toggle-row">
-                <span><strong>大字模式</strong><small>眼镜每屏只显示两条候选</small></span>
+                <span class="toggle-copy">
+                  <span class="toggle-icon icon-host" data-icon="large-text"></span>
+                  <span><strong>大字模式</strong><small>眼镜每屏只显示两条候选</small></span>
+                </span>
                 <input type="checkbox" id="f-bigtext" />
                 <i aria-hidden="true"></i>
               </label>
@@ -388,9 +392,12 @@
             </label>
 
             <label class="toggle-row privacy-toggle">
-              <span>
-                <strong>隐私快捷模式</strong>
-                <small>不采音、不联网，直接显示本地短语并使用本机语音</small>
+              <span class="toggle-copy">
+                <span class="toggle-icon icon-host" data-icon="offline"></span>
+                <span>
+                  <strong>隐私快捷模式</strong>
+                  <small>不采音、不联网，直接显示本地短语并使用本机语音</small>
+                </span>
               </span>
               <input type="checkbox" id="f-offline" />
               <i aria-hidden="true"></i>
@@ -411,9 +418,18 @@
         <span class="eyebrow">30 秒上手</span>
         <h2 id="onboard-title">三步完成一次表达</h2>
         <ol class="onboard-steps">
-          <li><span>1</span><div><strong>轻点 R1</strong><small>开始聆听，再点一次提前结束</small></div></li>
-          <li><span>2</span><div><strong>上下滑动</strong><small>在四条候选中选择想说的话</small></div></li>
-          <li><span>3</span><div><strong>再次轻点</strong><small>确认后由手机替你说出口</small></div></li>
+          <li>
+            <span class="onboard-step-icon icon-host" data-icon="ring-tap"></span>
+            <div><strong>轻点 R1</strong><small>开始聆听，再点一次提前结束</small></div>
+          </li>
+          <li>
+            <span class="onboard-step-icon icon-host" data-icon="swipe-vertical"></span>
+            <div><strong>上下滑动</strong><small>在四条候选中选择想说的话</small></div>
+          </li>
+          <li>
+            <span class="onboard-step-icon icon-host" data-icon="ring-tap"></span>
+            <div><strong>再次轻点</strong><small>确认后由手机替你说出口</small></div>
+          </li>
         </ol>
         <div class="onboard-safety">
           <strong>需要帮助？</strong>
@@ -425,12 +441,7 @@
 
     <div id="emergency-overlay" hidden role="alertdialog" aria-modal="true" aria-labelledby="em-text">
       <div class="emergency-aura" aria-hidden="true"></div>
-      <span class="em-icon" aria-hidden="true">
-        <svg viewBox="0 0 48 48">
-          <path d="M24 5 4 41h40L24 5Z" />
-          <path d="M24 17v10M24 33h.01" />
-        </svg>
-      </span>
+      <span class="em-icon icon-host" data-icon="emergency"></span>
       <span class="eyebrow">紧急呼救进行中</span>
       <div class="em-text" id="em-text"></div>
       <div class="em-hint">点按任意位置，立即停止并退出</div>

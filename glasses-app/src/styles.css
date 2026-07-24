@@ -119,6 +119,18 @@ svg {
   stroke-linejoin: round;
 }
 
+.ui-icon {
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.75;
+}
+
+.icon-host {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -300,6 +312,11 @@ svg {
   height: 21px;
 }
 
+.icon-button .icon-host {
+  width: 21px;
+  height: 21px;
+}
+
 .dashboard {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -448,6 +465,11 @@ svg {
   box-shadow:
     inset 0 0 24px rgba(155, 239, 114, 0.08),
     0 0 36px rgba(155, 239, 114, 0.08);
+}
+
+.status-icon {
+  width: 31px;
+  height: 31px;
 }
 
 .orb-core i {
@@ -601,8 +623,12 @@ kbd {
 }
 
 .scene-chip {
+  display: flex;
   min-width: 0;
   min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 0 var(--space-2);
   border: 1px solid transparent;
   border-radius: 10px;
@@ -615,6 +641,16 @@ kbd {
     border-color var(--motion-fast) ease,
     background var(--motion-fast) ease,
     transform var(--motion-fast) ease;
+}
+
+.scene-chip .icon-host {
+  width: 17px;
+  height: 17px;
+  color: var(--accent);
+}
+
+.scene-chip.active .icon-host {
+  color: currentColor;
 }
 
 .scene-chip:hover {
@@ -712,6 +748,11 @@ kbd {
 }
 
 .quick-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.quick-icon .ui-icon {
   width: 18px;
   height: 18px;
 }
@@ -866,6 +907,11 @@ kbd {
 }
 
 .mode-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.mode-icon .ui-icon {
   width: 22px;
   height: 22px;
 }
@@ -1476,6 +1522,38 @@ kbd {
   min-width: 0;
 }
 
+.toggle-copy {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.toggle-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.toggle-icon .ui-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.legend-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.legend-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+
 .toggle-row strong,
 .toggle-row small {
   display: block;
@@ -1698,6 +1776,11 @@ kbd {
   font-weight: 800;
 }
 
+.onboard-step-icon .ui-icon {
+  width: 17px;
+  height: 17px;
+}
+
 .onboard-steps strong,
 .onboard-steps small {
   display: block;
@@ -1791,6 +1874,12 @@ kbd {
   width: 44px;
   height: 44px;
   stroke-width: 2;
+}
+
+.em-icon .ui-icon {
+  width: 44px;
+  height: 44px;
+  stroke-width: 1.75;
 }
 
 #emergency-overlay .eyebrow {

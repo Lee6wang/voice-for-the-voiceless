@@ -27,7 +27,7 @@ function frame(status: string, body: string, hint: string): PageSpec {
 
 /** 待机：主标题 + 引导 + 操作提示。 */
 export function idleScreen(subtitle = '轻点戒指 · 开始聆听'): PageSpec {
-  return frame('无声之声', `\n${subtitle}`, '双击=快捷表达 · 镜腿双击=紧急呼救');
+  return frame('○ 无声之声', `\n${subtitle}`, '双击=快捷表达 · 镜腿双击=紧急呼救');
 }
 
 /** 聆听中：进度条（走无闪 upgrade，200ms tick 不重建）。 */
@@ -35,12 +35,12 @@ export function listeningScreen(elapsedMs: number, totalMs: number): PageSpec {
   const n = 12;
   const filled = Math.max(0, Math.min(n, Math.round((elapsedMs / totalMs) * n)));
   const bar = `${'█'.repeat(filled)}${'━'.repeat(n - filled)}`;
-  return frame('◉ 聆听中', `\n${bar}`, '再点一下 · 提前结束');
+  return frame('● 聆听中', `\n${bar}`, '再点一下 · 提前结束');
 }
 
 /** 思考中。 */
 export function thinkingScreen(): PageSpec {
-  return frame('◍ 思考中', '\n正在生成候选…', '稍候片刻');
+  return frame('… 思考中', '\n正在生成候选…', '稍候片刻');
 }
 
 /** 候选态：状态栏显「听到…+ n/总」，正文四条（或大字每屏 2 条），底部操作提示。 */
@@ -74,7 +74,7 @@ export function candidatesScreen(set: CandidateSet, bigText = false, armed = fal
 
 /** 正在发声。 */
 export function speakingScreen(text: string): PageSpec {
-  return frame('🔊 正在替你说', `\n${text}`, '');
+  return frame('▶ 正在替你说', `\n${text}`, '');
 }
 
 /** 已说出确认（确定感，兼容听障）。 */
@@ -84,7 +84,7 @@ export function confirmedScreen(text: string): PageSpec {
 
 /** 紧急呼救：整屏粗框大字；alt 交替两帧造闪烁（同结构 → 无闪 upgrade）。 */
 export function emergencyScreen(text: string, alt: boolean): PageSpec {
-  const title = alt ? '⚠　紧急呼救　⚠' : '█　紧急呼救　█';
+  const title = alt ? '!　紧急呼救　!' : '█　紧急呼救　█';
   return {
     zones: [
       { id: 1, name: 'emergency', x: 0, y: 0, w: W, h: H, border: 15, content: `\n${title}\n\n${text}` },
