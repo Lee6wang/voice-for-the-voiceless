@@ -77,6 +77,14 @@ export interface SceneContext {
   lon?: number;
 }
 
+/** 一轮已完成的对话（多轮上下文：对方说了什么 + 用户选了什么） */
+export interface ConversationTurn {
+  /** 对方说的话（ASR 转写） */
+  heard: string;
+  /** 用户选中并说出的候选 */
+  said: string;
+}
+
 export interface CandidatesRequest {
   turnId: string;
   heardText: string;
@@ -85,6 +93,8 @@ export interface CandidatesRequest {
   exclude?: string[];
   /** 场景上下文（时间/地点），候选会贴合情境 */
   context?: SceneContext;
+  /** 多轮上下文（最近几轮对话，可选、加性；backend 消费为可选增强） */
+  history?: ConversationTurn[];
 }
 export interface CandidatesResponse {
   turnId: string;

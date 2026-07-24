@@ -160,6 +160,32 @@ export async function kvsSet(key: string, value: string): Promise<void> {
   window.localStorage.setItem(key, value);
 }
 
+// ---- 候选频次学习（端侧“越用越懂你”，纯本地）----
+
+const USAGE_KEY = 'usage';
+let usage: Record<string, number> = {};
+
+/** 启动时读一次频次表进内存（失败用空表）。 */
+export async function loadUsage(): Promise<void> {
+  try {
+    const raw = await kvsGet(USAGE_KEY);
+    if (raw) usage = JSON.parse(raw) as Record<string, number>;
+  } catch {
+    usage = {};
+  }
+}
+
+/** 某候选被选中发声时 +1（内存 + KVS 同步）。 */
+export function bumpUsage(text: string): void {
+  usage[text] = (usage[text] ?? 0) + 1;
+  void kvsSet(USAGE_KEY, JSON.stringify(usage));
+}
+
+/** 某文本的历史选中次数（供排序）。 */
+export function usageOf(text: string): number {
+  return usage[text] ?? 0;
+}
+
 /** 临时调试开关：真机排查事件用，验完改回 false。 */
 const DEBUG_EVENTS = false;
 const debugLog: string[] = [];

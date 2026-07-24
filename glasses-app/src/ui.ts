@@ -21,6 +21,8 @@ export interface AppSettings {
   listenSeconds: 3 | 4 | 5;
   /** 当前场景 */
   scene: SceneId;
+  /** 大字模式：每屏 2 条候选 + 翻页（可读性） */
+  bigText: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mirrorHud: false,
   listenSeconds: 4,
   scene: 'default',
+  bigText: false,
 };
 
 let speakPhraseCb: ((text: string) => void) | null = null;
@@ -102,14 +105,15 @@ export function setActiveScene(scene: SceneId): void {
   });
 }
 
-/** 快捷句发声板：把常用语渲染为点按即说的按钮（保存/切场景后重新渲染）。 */
-export function renderQuickPhrases(phrases: string[]): void {
+/** 快捷句发声板：把常用语渲染为点按即说的按钮（保存/切场景后重新渲染；可传排序器）。 */
+export function renderQuickPhrases(phrases: string[], sortBy?: (a: string, b: string) => number): void {
   const card = byId('quick-card');
   const list = byId('quick-list');
   if (!card || !list) return;
+  const ordered = sortBy ? [...phrases].sort(sortBy) : phrases;
   list.innerHTML = '';
-  card.hidden = phrases.length === 0;
-  for (const text of phrases) {
+  card.hidden = ordered.length === 0;
+  for (const text of ordered) {
     const btn = document.createElement('button');
     btn.className = 'quick-btn';
     btn.textContent = `🔊 ${text}`;
@@ -153,12 +157,15 @@ function fillForm(p: UserProfile, s: AppSettings): void {
     `input[name="f-listen"][value="${s.listenSeconds}"]`,
   );
   if (listen) listen.checked = true;
+  const bigtext = byId('f-bigtext') as HTMLInputElement | null;
+  if (bigtext) bigtext.checked = s.bigText;
 }
 
 function readSettings(): AppSettings {
   const twostep = byId('f-twostep') as HTMLInputElement | null;
   const offline = byId('f-offline') as HTMLInputElement | null;
   const mirror = byId('f-mirror') as HTMLInputElement | null;
+  const bigtext = byId('f-bigtext') as HTMLInputElement | null;
   const listenRaw = document.querySelector<HTMLInputElement>('input[name="f-listen"]:checked')?.value;
   const listenSeconds = (Number(listenRaw) || 4) as AppSettings['listenSeconds'];
   const activeChip = document.querySelector<HTMLButtonElement>('.scene-chip.active');
@@ -168,6 +175,7 @@ function readSettings(): AppSettings {
     mirrorHud: mirror?.checked ?? false,
     listenSeconds,
     scene: (activeChip?.dataset.scene ?? 'default') as SceneId,
+    bigText: bigtext?.checked ?? false,
   };
 }
 

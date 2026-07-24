@@ -9,9 +9,11 @@ import {
   pickTemplateCandidates, // 断网/后端不可达时的插件端兜底（②）
   type AsrRequest,
   type AsrResponse,
+  type Candidate,
   type CandidateSet,
   type CandidatesRequest,
   type CandidatesResponse,
+  type ConversationTurn,
   type RawInput,
   type SceneContext,
   type TtsRequest,
@@ -20,16 +22,19 @@ import {
   type UserProfile,
 } from '@vftv/shared';
 import {
+  bumpUsage,
   capturePcm,
   hudWrite,
   initHub,
   kvsGet,
   kvsSet,
+  loadUsage,
   onInput,
   playAudioBase64,
   setMirror,
   speakFallback,
   stopCapture,
+  usageOf,
   watchDeviceStatus,
 } from './hub';
 import {
@@ -73,6 +78,15 @@ let armed = false; // 两步确认：候选已锁定，再 tap 才说出
 let flowId = 0; // 会话令牌：看门狗复位后丢弃迟到的旧流程结果
 let emergencyActive = false;
 let activeGroup = 0; // 主动模式当前分组
+let history: ConversationTurn[] = []; // 多轮上下文（会话级，最近 3 轮）
+
+/** 按历史选中次数稳定降序（“越用越懂你”；次数相同保持原序）。 */
+function sortByUsage(cands: Candidate[]): Candidate[] {
+  return cands
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => usageOf(b.c.text) - usageOf(a.c.text) || a.i - b.i)
+    .map((x) => x.c);
+}
 
 /** 当前生效的常用语：用户自定义 + 场景短语包（去重） */
 function effectivePhrases(): string[] {
@@ -144,7 +158,7 @@ async function startListening() {
     const turnId = `t_${Date.now()}`;
     const candidates = await getCandidates(turnId, heardText);
     if (id !== flowId) return;
-    current = { turnId, heardText, candidates, highlightIndex: 0 };
+    current = { turnId, heardText, candidates: sortByUsage(candidates), highlightIndex: 0 };
     armed = false;
     setState('CANDIDATES');
     renderCandidates(current);
@@ -176,6 +190,7 @@ async function getCandidates(turnId: string, heardText: string, exclude: string[
       profile: profileForRequest,
       exclude,
       context: buildContext(),
+      history: history.length ? history : undefined, // 多轮上下文（最近≤3轮）
     };
     const r = await fetch(`${BACKEND}/candidates`, {
       method: 'POST',
@@ -193,9 +208,16 @@ async function getCandidates(turnId: string, heardText: string, exclude: string[
 async function confirmAndSpeak() {
   if (state !== 'CANDIDATES' || !current) return;
   const chosen = current.candidates[current.highlightIndex];
+  const turn = current;
+  bumpUsage(chosen.text); // 频次学习：选过的下次排前
   setState('SPEAKING');
   renderHUD('🔊 正在替你说…');
   await speak(chosen.text);
+  // 多轮上下文：只记应答模式的真实对话（主动模式 turnId 以 active_ 开头，不计入）
+  if (!turn.turnId.startsWith('active_')) {
+    history.push({ heard: turn.heardText, said: chosen.text });
+    if (history.length > 3) history.shift();
+  }
   renderHUD(`✓ 已替你说：${chosen.text}`);
   await sleepMs(2000);
   setState('IDLE');
@@ -252,7 +274,7 @@ async function refresh() {
     return;
   }
   const seen = current.candidates.map((c) => c.text);
-  current.candidates = await getCandidates(current.turnId, current.heardText, seen);
+  current.candidates = sortByUsage(await getCandidates(current.turnId, current.heardText, seen));
   current.highlightIndex = 0;
   renderCandidates(current);
 }
@@ -380,11 +402,25 @@ function renderHUD(text: string) {
 function renderCandidates(set: CandidateSet) {
   const isActive = set.turnId.startsWith('active_');
   const context = isActive ? set.heardText : `听到：${set.heardText}`;
-  const header = `候选 ${set.highlightIndex + 1}/${set.candidates.length} · ${context}`;
+  const total = set.candidates.length;
+  const header = `候选 ${set.highlightIndex + 1}/${total} · ${context}`;
+  const footer = armed ? '\n再点一下说出 ✓' : '';
+
+  // 大字模式：只显以高亮为中心的 2 条窗口（滑动翻页）；否则四条全显
+  if (settings.bigText) {
+    const start = Math.floor(set.highlightIndex / 2) * 2; // 以 2 为步的页
+    const win = set.candidates
+      .map((c, i) => ({ c, i }))
+      .slice(start, start + 2)
+      .map(({ c, i }) => `${i === set.highlightIndex ? '▶ ' : '  '}${c.text}`)
+      .join('\n\n'); // 多留白，更易读
+    hudWrite(`${header}\n\n${win}${footer}`);
+    return;
+  }
+
   const items = set.candidates
     .map((c, i) => `${i === set.highlightIndex ? '▶ ' : '  '}${c.text}`)
     .join('\n');
-  const footer = armed ? '\n再点一下说出 ✓' : '';
   hudWrite(`${header}\n${items}${footer}`);
 }
 
@@ -406,10 +442,11 @@ function activeGroups(): { name: string; phrases: string[] }[] {
 function showActiveGroup() {
   const groups = activeGroups();
   const g = groups[activeGroup % groups.length];
+  const cands = g.phrases.slice(0, 4).map((text, i) => ({ id: `a${activeGroup}_${i}`, text }));
   current = {
     turnId: `active_${Date.now()}`,
     heardText: `主动 · ${g.name}（双击换组）`,
-    candidates: g.phrases.slice(0, 4).map((text, i) => ({ id: `a${activeGroup}_${i}`, text })),
+    candidates: sortByUsage(cands),
     highlightIndex: 0,
   };
   armed = false;
@@ -417,11 +454,13 @@ function showActiveGroup() {
   renderCandidates(current);
 }
 
-// 启动：等 bridge（超时回退纯浏览器）→ 读 KVS 配置/设置 → 初始化手机 UI → 注册输入 → 首屏
+// 启动：等 bridge（超时回退纯浏览器）→ 读 KVS 配置/设置/频次 → 初始化手机 UI → 注册输入 → 首屏
 initHub().then(async () => {
   profile = await loadProfile();
   settings = await loadSettings();
+  await loadUsage(); // 频次学习表进内存
   const onboarded = (await kvsGet(ONBOARD_KEY)) === '1';
+  const byUsage = (a: string, b: string) => usageOf(b) - usageOf(a); // 高频常用语冒泡
   initUi({
     profile,
     settings,
@@ -432,16 +471,17 @@ initHub().then(async () => {
       void saveProfile(p);
       void saveSettings(s);
       setMirror(s.mirrorHud);
-      renderQuickPhrases(effectivePhrases()); // 快捷句板跟随常用语+场景更新
+      renderQuickPhrases(effectivePhrases(), byUsage); // 快捷句板跟随常用语+场景更新，按频次排
     },
     onSceneChange: (scene) => {
       settings = { ...settings, scene };
       void saveSettings(settings);
-      renderQuickPhrases(effectivePhrases());
+      renderQuickPhrases(effectivePhrases(), byUsage);
     },
     onSpeakPhrase: async (text) => {
       // 快捷句发声板：手机点按即说（眼镜没电/未戴时独立可用）
       if (state !== 'IDLE') return;
+      bumpUsage(text);
       setState('SPEAKING');
       await speak(text);
       setState('IDLE');
@@ -449,7 +489,7 @@ initHub().then(async () => {
     onOnboarded: () => void kvsSet(ONBOARD_KEY, '1'),
   });
   setMirror(settings.mirrorHud); // 镜像默认关（隐私），演示时配置页打开
-  renderQuickPhrases(effectivePhrases());
+  renderQuickPhrases(effectivePhrases(), byUsage);
   watchDeviceStatus((connected) => {
     // BLE 断连守护：手机提示；重连后 hub 会自动重建 HUD
     setStatus(connected ? '已重新连接' : '眼镜已断开，重连中…');
