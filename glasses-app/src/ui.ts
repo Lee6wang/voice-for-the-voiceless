@@ -9,6 +9,7 @@ import {
   type UiState,
   type UserProfile,
 } from '@vftv/shared';
+import { mountIcons, renderIcon, type IconName } from './icons';
 
 type ViewName = 'menu' | 'config';
 
@@ -233,37 +234,43 @@ type VisualState = UiState | 'DISCONNECTED';
 
 const STATUS_PRESENTATION: Record<
   VisualState,
-  { title: string; detail: string; action: string }
+  { title: string; detail: string; action: string; icon: IconName }
 > = {
   IDLE: {
     title: '准备好了',
     detail: '轻点 R1 戒指，开始聆听',
     action: '轻点开始',
+    icon: 'idle',
   },
   LISTENING: {
     title: '正在聆听',
     detail: '再轻点一次，可以提前结束',
     action: '再点结束',
+    icon: 'listening',
   },
   THINKING: {
     title: '正在理解对话',
     detail: '正在为你准备四条表达',
     action: '请稍候',
+    icon: 'thinking',
   },
   CANDIDATES: {
     title: '候选已就绪',
     detail: '上下滑动选择，轻点确认',
     action: '滑动选择',
+    icon: 'candidates',
   },
   SPEAKING: {
     title: '正在替你说',
     detail: '声音结束前不会重新开麦',
     action: '播放期间锁定',
+    icon: 'speaking',
   },
   DISCONNECTED: {
     title: 'G2 连接已断开',
     detail: '保持 Even App 打开，正在等待重连',
     action: '打开 Even App',
+    icon: 'offline',
   },
 };
 
@@ -284,6 +291,8 @@ export function setStatus(text: string, state: VisualState = 'IDLE'): void {
   setText('status-action', presentation.action);
   const hero = byId('status-hero');
   if (hero) hero.dataset.state = state;
+  const icon = byId('status-icon');
+  if (icon) renderIcon(icon, presentation.icon);
 }
 
 /** 更新折叠设备检查卡；只展示运行状态和耗时，不展示文本、profile 或音频。 */
@@ -379,6 +388,7 @@ export function initUi(opts: {
   onRetryHealth: () => void;
 }): void {
   speakPhraseCb = opts.onSpeakPhrase;
+  mountIcons();
   fillForm(opts.profile, opts.settings);
   setActiveScene(opts.settings.scene);
   setActivePartner(opts.settings.partner);
@@ -527,9 +537,7 @@ function buildQuickButton(text: string): HTMLButtonElement {
 
   const icon = document.createElement('span');
   icon.className = 'quick-icon';
-  icon.setAttribute('aria-hidden', 'true');
-  icon.innerHTML =
-    '<svg viewBox="0 0 24 24"><path d="M11 5 6.8 8.5H4v7h2.8L11 19V5Z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>';
+  renderIcon(icon, 'speaking');
 
   const label = document.createElement('span');
   label.className = 'quick-text';

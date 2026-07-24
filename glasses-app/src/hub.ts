@@ -23,7 +23,7 @@ const HUD_CONTAINER_NAME = 'hud';
 const BRIDGE_TIMEOUT_MS = 1500; // waitForEvenAppBridge 卡住时的安全网
 
 /** 启动首屏文字（直接写进启动页 content，确保容器一建好眼镜立刻有字） */
-const WELCOME_TEXT = '无声之声 · 轻点戒指开始聆听';
+const WELCOME_TEXT = '○ 无声之声 · 轻点戒指开始聆听';
 
 let bridge: EvenAppBridge | null = null;
 let hasBridge = false;
