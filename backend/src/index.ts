@@ -1,6 +1,9 @@
-// 无声之声 · 薄云后端（骨架）
+// 无声之声 · 薄云后端
 // 职责：配置存储 + 云 API 密钥代理。glasses-app 只调这里，密钥不落客户端。
-// 现状：/asr /tts 为 mock；/candidates 已接模板库兜底；真实云 API 调用见各 TODO。
+// 现状：/candidates 已接真实 LLM（OpenAI 兼容 provider，失败回退模板库）；
+//       /tts 已接 msedge-tts（免密钥 + 磁盘缓存兜底）；
+//       /asr 已接 sherpa-onnx SenseVoice 端侧离线识别；
+//       profile 已做 JSON 文件持久化，保存/启动时预录 TTS 关键句。
 // 对应文档：docs/接口契约.md §3
 
 import 'dotenv/config';
@@ -14,54 +17,111 @@ import {
   type TtsResponse,
   type UserProfile,
 } from '@vftv/shared';
+import { generateCandidates } from './candidates';
+import { asrReady, transcribe, warmupAsr } from './providers/asr';
+import { loadLlmConfig } from './providers/llm';
+import { prewarmPhrases, synthesize } from './providers/tts';
+import { getProfile, listProfiles, loadProfiles, saveProfile } from './store';
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // base64 音频较大
 
-// ---- 配置存储（Demo 用内存即可；生产换 KV/DB）----
-const profiles = new Map<string, UserProfile>();
+// ---- 配置存储（JSON 文件持久化，重启不丢；生产换 KV/DB）----
+loadProfiles();
+// 启动即把已存 profile 的紧急语/常用语预合成进磁盘缓存：现场断网也能朗读关键句
+for (const p of listProfiles()) {
+  prewarmPhrases([p.emergencyText, ...(p.commonPhrases ?? [])], p.voice);
+}
 
-// 3.1 POST /asr — 语音转文字
+// 3.1 POST /asr — 语音转文字（sherpa-onnx + SenseVoice 端侧离线识别，免密钥断网可用）
 app.post('/asr', async (req, res) => {
-  // TODO: 调云 ASR（讯飞/阿里云），把 req.body.audio(base64 PCM16k) 转文字
-  const resp: AsrResponse = { text: '（示例）你中午想吃什么？' };
-  res.json(resp);
+  const { audio } = req.body as { audio?: string };
+  if (!audio) {
+    res.status(400).json({ ok: false, error: 'audio required (base64 PCM 16kHz mono)' });
+    return;
+  }
+  if (!asrReady()) {
+    // 模型未下载：明确报错而非假文本，便于 A 端区分故障
+    res.status(503).json({ ok: false, error: 'ASR model not downloaded, see backend/models/README.md' });
+    return;
+  }
+  try {
+    const resp: AsrResponse = { text: transcribe(audio) };
+    res.json(resp);
+  } catch (e) {
+    console.warn('[asr] failed:', e instanceof Error ? e.message : e);
+    res.status(500).json({ ok: false, error: 'ASR failed' });
+  }
 });
 
 // 3.2 POST /candidates — 生成候选（核心）
 app.post('/candidates', async (req, res) => {
-  const { turnId, heardText, profile, exclude = [] } = req.body as CandidatesRequest;
+  const { turnId, heardText, profile, exclude = [], context } = req.body as CandidatesRequest;
   try {
-    // TODO: 拼 prompt（注入 profile.name/commonPhrases/tone）→ 调云 LLM → 解析 4 条 ≤12 字
-    // const candidates = await callLLM(heardText, profile, exclude);
-    throw new Error('LLM not wired yet'); // 暂时强制走兜底
-    // const resp: CandidatesResponse = { turnId, candidates };
-    // res.json(resp);
-  } catch {
-    // ① backend 侧兜底：LLM 超时/报错 → 模板库
+    // 真实 LLM：注入 profile.name/commonPhrases/tone + 场景上下文（时间/地点），输出经确定性清洗
+    const candidates = await generateCandidates(heardText, profile, exclude, context);
+    const resp: CandidatesResponse = { turnId, candidates };
+    res.json(resp);
+  } catch (e) {
+    // ① backend 侧兜底：LLM 未配置/超时/报错 → 模板库
+    console.warn('[candidates] fallback to templates:', e instanceof Error ? e.message : e);
     const resp: CandidatesResponse = { turnId, candidates: pickTemplateCandidates(heardText, exclude) };
     res.json(resp);
   }
 });
 
-// 3.3 POST /tts — 文字转语音
+// 3.3 POST /tts — 文字转语音（msedge-tts，免密钥；同文本磁盘缓存，断网可回放已合成句）
 app.post('/tts', async (req, res) => {
-  // TODO: 调云 TTS（讯飞/Edge-TTS），返回 base64 mp3/wav
-  const resp: TtsResponse = { audio: '' };
-  res.json(resp);
+  const { text, voice } = req.body as { text?: string; voice?: string };
+  if (!text?.trim()) {
+    res.status(400).json({ ok: false, error: 'text required' });
+    return;
+  }
+  try {
+    const { audio, mime } = await synthesize(text.trim(), voice);
+    const resp: TtsResponse = { audio, mime };
+    res.json(resp);
+  } catch (e) {
+    // 合成失败且无缓存：返空 audio，前端降级为 HUD 纯文字展示（契约 §5.5 不白屏）
+    console.warn('[tts] failed:', e instanceof Error ? e.message : e);
+    const resp: TtsResponse = { audio: '', mime: 'audio/mpeg' };
+    res.json(resp);
+  }
 });
 
-// 3.4 GET/POST /profile — 配置读写
+// 3.4 GET/POST /profile — 配置读写（写入即落盘）
 app.get('/profile', (req, res) => {
   const userId = String(req.query.userId ?? 'demo');
-  res.json(profiles.get(userId) ?? { userId, commonPhrases: [] } satisfies UserProfile);
+  res.json(getProfile(userId) ?? { userId, commonPhrases: [] } satisfies UserProfile);
 });
 app.post('/profile', (req, res) => {
   const profile = req.body as UserProfile;
-  profiles.set(profile.userId, profile);
+  if (!profile?.userId) {
+    res.status(400).json({ ok: false, error: 'userId required' });
+    return;
+  }
+  saveProfile(profile);
+  // 后台预合成紧急语 + 常用语（不阻塞响应；断网时由磁盘缓存兜底）
+  prewarmPhrases([profile.emergencyText, ...(profile.commonPhrases ?? [])], profile.voice);
   res.json({ ok: true });
 });
 
+// 3.5 GET /health — 联调用：确认服务可达 + 各云能力是否已配置
+app.get('/health', (_req, res) => {
+  res.json({
+    ok: true,
+    llm: loadLlmConfig() !== null, // false = 未配 LLM_API_KEY，/candidates 恒走模板
+    tts: true, // msedge-tts 免密钥，始终可用（断网时靠缓存）
+    asr: asrReady(), // false = 模型未下载，/asr 返 503
+    uptime: Math.round(process.uptime()),
+  });
+});
+
 const PORT = Number(process.env.PORT ?? 8787);
-app.listen(PORT, () => console.log(`[backend] listening on http://localhost:${PORT}`));
+const HOST = process.env.HOST ?? '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+  console.log(`[backend] listening on http://${HOST}:${PORT}`);
+  warmupAsr(); // 预热识别模型，避免首次 /asr 叠加加载延迟
+});

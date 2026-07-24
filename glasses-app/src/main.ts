@@ -13,6 +13,7 @@ import {
   type CandidatesRequest,
   type CandidatesResponse,
   type RawInput,
+  type SceneContext,
   type TtsRequest,
   type TtsResponse,
   type UiState,
@@ -81,6 +82,23 @@ function effectivePhrases(): string[] {
 /** 聆听时长（可配置 3/4/5 秒） */
 function listenMs(): number {
   return settings.listenSeconds * 1000;
+}
+
+/** 场景上下文：时间必带 + 场景手选（backend 据此让候选贴合情境，见契约 §3.2） */
+function buildContext(): SceneContext {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const h = now.getHours();
+  const timeOfDay =
+    h < 6 ? '深夜' : h < 10 ? '早晨' : h < 14 ? '午餐时段' : h < 18 ? '下午' : h < 21 ? '晚餐时段' : '晚间';
+  const sceneLabel: Record<SceneId, string | undefined> = {
+    default: undefined,
+    work: '工作场合',
+    dining: '餐厅',
+    social: '聚会',
+  };
+  return { localTime: `${hh}:${mm}`, timeOfDay, scene: sceneLabel[settings.scene] };
 }
 
 // ---- 看门狗：LISTENING/THINKING 卡住 10s 强制复位（坏了也回得来）----
@@ -152,7 +170,13 @@ async function getCandidates(turnId: string, heardText: string, exclude: string[
   if (settings.offlineMode) return pickTemplateCandidates(heardText, exclude); // 隐私/无网：不联网
   try {
     const profileForRequest: UserProfile = { ...profile, commonPhrases: effectivePhrases() };
-    const body: CandidatesRequest = { turnId, heardText, profile: profileForRequest, exclude };
+    const body: CandidatesRequest = {
+      turnId,
+      heardText,
+      profile: profileForRequest,
+      exclude,
+      context: buildContext(),
+    };
     const r = await fetch(`${BACKEND}/candidates`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -328,6 +352,7 @@ async function asr(audio: string): Promise<string> {
 async function speak(text: string) {
   // 防回声由「仅 LISTENING 窗口开麦、SPEAKING 期间不开麦」保证，无需守卫标志位
   let audio = '';
+  let mime = 'audio/mp3';
   if (!settings.offlineMode) {
     try {
       const body: TtsRequest = { text, voice: profile.voice };
@@ -336,13 +361,15 @@ async function speak(text: string) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-      audio = ((await r.json()) as TtsResponse).audio ?? '';
+      const resp = (await r.json()) as TtsResponse;
+      audio = resp.audio ?? '';
+      mime = resp.mime ?? 'audio/mp3'; // backend 可能返 audio/mpeg，缺省按 mp3（契约 §3.3）
     } catch {
       /* 断网/无后端：audio 保持空，走降级链 */
     }
   }
   // 降级链：云 TTS → 浏览器 speechSynthesis（免费/离线）→ 静默；离线模式直走第二级
-  const played = await playAudioBase64(audio);
+  const played = await playAudioBase64(audio, mime);
   if (!played) await speakFallback(text);
 }
 

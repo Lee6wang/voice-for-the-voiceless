@@ -4,6 +4,8 @@
 # ── 大文件 / 二进制（不入库）──
 *.zip
 *.apk
+*.ehp
+*.ehpk
 
 # ── Python（host 主机端）──
 __pycache__/
@@ -18,15 +20,22 @@ node_modules/
 dist/
 build/
 *.log
+
+# ── backend 本地数据（profile 持久化，不入库）──
+backend/data/
+
+# ── backend ASR 模型（约 170MB，不入库，下载见 backend/models/README.md）──
+backend/models/*
+!backend/models/README.md
 *.tsbuildinfo
 
 # ── Expo / React Native（config-app）──
 .expo/
 .expo-shared/
 
-# ── 运行产物：音频 / 模型 ──
-audio/
-models/
+# ── 运行产物：音频 / 模型（仅仓库根目录，勿遮蔽 backend/models 等子目录规则）──
+/audio/
+/models/
 *.wav
 *.bin
 
