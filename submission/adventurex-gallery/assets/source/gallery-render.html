@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>无声之声 · Gallery renders</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #020707;
+      --paper: #f1eee6;
+      --muted: #a6ada8;
+      --teal: #baf0eb;
+      --teal-strong: #dffdfa;
+      --lime: #a6f26d;
+      --warm: #f09a5f;
+      --warm-soft: #ffd1ab;
+      --line: rgba(218, 247, 239, .18);
+      --panel: rgba(9, 18, 16, .82);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      width: 1920px;
+      height: 1080px;
+      margin: 0;
+      overflow: hidden;
+      background: var(--ink);
+      color: var(--paper);
+      font-family: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    }
+
+    body { position: relative; }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      display: none;
+      overflow: hidden;
+      isolation: isolate;
+      background:
+        radial-gradient(circle at 70% 30%, rgba(28, 87, 77, .18), transparent 35%),
+        linear-gradient(145deg, #020505, #07110f 58%, #030706);
+    }
+
+    .slide.active { display: block; }
+
+    .grain {
+      position: absolute;
+      inset: 0;
+      z-index: 8;
+      pointer-events: none;
+      opacity: .14;
+      background-image:
+        repeating-linear-gradient(0deg, transparent 0 3px, rgba(255,255,255,.018) 3px 4px),
+        radial-gradient(circle at 15% 20%, rgba(255,255,255,.12) 0 1px, transparent 1.5px);
+      background-size: auto, 34px 34px;
+      mix-blend-mode: screen;
+    }
+
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      color: var(--warm);
+      font-size: 22px;
+      font-weight: 650;
+      letter-spacing: .24em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 60px;
+      height: 2px;
+      background: currentColor;
+      box-shadow: 0 0 18px currentColor;
+    }
+
+    h1, h2, p { margin: 0; }
+
+    .display {
+      margin-top: 28px;
+      font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+      font-size: 90px;
+      font-weight: 500;
+      line-height: 1.05;
+      letter-spacing: .02em;
+      text-wrap: balance;
+    }
+
+    .lede {
+      margin-top: 32px;
+      color: #c7cdca;
+      font-size: 28px;
+      font-weight: 350;
+      line-height: 1.7;
+      letter-spacing: .03em;
+    }
+
+    .folio {
+      position: absolute;
+      right: 76px;
+      bottom: 56px;
+      z-index: 10;
+      color: rgba(240,238,230,.58);
+      font-size: 18px;
+      letter-spacing: .18em;
+    }
+
+    .mark {
+      position: absolute;
+      left: 76px;
+      top: 58px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font-size: 22px;
+      letter-spacing: .12em;
+    }
+
+    .mark-dot {
+      width: 42px;
+      height: 42px;
+      border: 1px solid rgba(191, 247, 234, .35);
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: var(--teal);
+      box-shadow: inset 0 0 24px rgba(91, 213, 187, .1), 0 0 24px rgba(91, 213, 187, .08);
+    }
+
+    /* 01 · Product */
+    .product-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      filter: saturate(.78) contrast(1.07) brightness(.9);
+    }
+
+    .product-shade {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(90deg, rgba(0,0,0,.82) 0%, rgba(0,0,0,.48) 32%, transparent 62%),
+        linear-gradient(0deg, rgba(0,0,0,.55), transparent 38%);
+    }
+
+    .product-copy {
+      position: absolute;
+      left: 96px;
+      top: 250px;
+      z-index: 3;
+      width: 650px;
+    }
+
+    .product-title {
+      margin-top: 26px;
+      font-family: "Songti SC", "STSong", serif;
+      font-size: 116px;
+      font-weight: 400;
+      line-height: 1;
+      letter-spacing: .04em;
+      text-shadow: 0 2px 22px rgba(0,0,0,.6);
+    }
+
+    .product-sub {
+      margin-top: 18px;
+      font-size: 30px;
+      font-weight: 350;
+      letter-spacing: .12em;
+    }
+
+    .product-note {
+      margin-top: 42px;
+      max-width: 590px;
+      color: rgba(240,238,230,.75);
+      font-size: 22px;
+      line-height: 1.7;
+      letter-spacing: .04em;
+    }
+
+    .device-strip {
+      position: absolute;
+      left: 96px;
+      bottom: 94px;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .device-chip {
+      padding: 12px 18px;
+      border: 1px solid rgba(225,245,239,.2);
+      border-radius: 999px;
+      background: rgba(2,8,7,.62);
+      backdrop-filter: blur(10px);
+      color: #d6d9d5;
+      font-size: 18px;
+      letter-spacing: .07em;
+    }
+
+    .device-arrow { color: var(--warm); font-size: 22px; }
+
+    /* 02 · HUD */
+    .hud-copy {
+      position: absolute;
+      left: 92px;
+      top: 198px;
+      z-index: 3;
+      width: 545px;
+    }
+
+    .hud-copy .display { font-size: 78px; }
+
+    .principles {
+      margin-top: 46px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .principle {
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      align-items: center;
+      gap: 17px;
+      color: #cbd1ce;
+      font-size: 21px;
+      letter-spacing: .04em;
+    }
+
+    .principle b {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(186,240,235,.25);
+      border-radius: 50%;
+      color: var(--teal);
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .app-frame {
+      position: absolute;
+      left: 676px;
+      top: 150px;
+      z-index: 3;
+      width: 1138px;
+      height: 870px;
+      padding: 14px;
+      border: 1px solid rgba(201,238,229,.22);
+      border-radius: 38px;
+      background: linear-gradient(145deg, rgba(166,242,109,.09), rgba(7,12,11,.9) 28%);
+      box-shadow: 0 42px 100px rgba(0,0,0,.55), inset 0 1px rgba(255,255,255,.07);
+      transform: perspective(1800px) rotateY(-3deg);
+    }
+
+    .app-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 27px;
+    }
+
+    .hud-highlight {
+      position: absolute;
+      left: 139px;
+      top: 306px;
+      width: 498px;
+      height: 282px;
+      border: 2px solid rgba(166,242,109,.7);
+      border-radius: 22px;
+      box-shadow: 0 0 40px rgba(166,242,109,.14), inset 0 0 30px rgba(166,242,109,.05);
+      pointer-events: none;
+    }
+
+    .hud-label {
+      position: absolute;
+      left: 145px;
+      top: 272px;
+      padding: 7px 13px;
+      border-radius: 999px;
+      background: var(--lime);
+      color: #10210f;
+      font-size: 14px;
+      font-weight: 750;
+      letter-spacing: .12em;
+    }
+
+    /* 03 · Flow */
+    .flow-bg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: .23;
+      filter: blur(1px) saturate(.55);
+    }
+
+    .flow-header {
+      position: absolute;
+      left: 90px;
+      top: 145px;
+      z-index: 3;
+    }
+
+    .flow-header .display { font-size: 78px; }
+
+    .flow-canvas {
+      position: absolute;
+      left: 90px;
+      right: 90px;
+      top: 475px;
+      height: 420px;
+      z-index: 3;
+    }
+
+    .flow-line {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .flow-nodes {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 32px;
+    }
+
+    .flow-node {
+      align-self: center;
+      min-height: 260px;
+      padding: 34px 30px 30px;
+      border: 1px solid rgba(218,247,239,.16);
+      border-radius: 28px;
+      background: linear-gradient(145deg, rgba(14,28,25,.88), rgba(5,11,10,.9));
+      box-shadow: 0 26px 60px rgba(0,0,0,.36), inset 0 1px rgba(255,255,255,.05);
+      backdrop-filter: blur(12px);
+    }
+
+    .flow-node:nth-child(3) {
+      border-color: rgba(240,154,95,.5);
+      box-shadow: 0 26px 60px rgba(0,0,0,.36), 0 0 48px rgba(240,154,95,.08);
+    }
+
+    .node-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .node-no {
+      color: var(--teal);
+      font-size: 18px;
+      letter-spacing: .15em;
+    }
+
+    .node-device {
+      color: #77827e;
+      font-size: 15px;
+      letter-spacing: .12em;
+    }
+
+    .node-title {
+      margin-top: 38px;
+      font-family: "Songti SC", "STSong", serif;
+      font-size: 46px;
+      font-weight: 500;
+    }
+
+    .node-body {
+      margin-top: 15px;
+      color: #aeb6b2;
+      font-size: 19px;
+      line-height: 1.55;
+    }
+
+    .candidate-dots {
+      margin-top: 22px;
+      display: flex;
+      gap: 10px;
+    }
+
+    .candidate-dots i {
+      width: 31px;
+      height: 7px;
+      border-radius: 99px;
+      background: rgba(186,240,235,.46);
+    }
+
+    .candidate-dots i.active {
+      width: 54px;
+      background: var(--warm);
+      box-shadow: 0 0 18px rgba(240,154,95,.4);
+    }
+
+    .flow-foot {
+      position: absolute;
+      left: 92px;
+      bottom: 64px;
+      z-index: 3;
+      display: flex;
+      gap: 34px;
+      color: rgba(240,238,230,.62);
+      font-size: 17px;
+      letter-spacing: .08em;
+    }
+
+    .flow-foot span::before {
+      content: "·";
+      margin-right: 12px;
+      color: var(--warm);
+    }
+
+    /* 04 · Settings */
+    .settings-header {
+      position: absolute;
+      left: 92px;
+      top: 134px;
+      z-index: 4;
+      width: 650px;
+    }
+
+    .settings-header .display { font-size: 72px; }
+
+    .settings-lede {
+      position: absolute;
+      left: 825px;
+      top: 174px;
+      z-index: 4;
+      width: 930px;
+      color: #b6bfbb;
+      font-size: 23px;
+      line-height: 1.7;
+    }
+
+    .settings-grid {
+      position: absolute;
+      left: 90px;
+      right: 90px;
+      top: 388px;
+      height: 585px;
+      z-index: 4;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+    }
+
+    .settings-card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(218,247,239,.18);
+      border-radius: 30px;
+      background: #09100e;
+      box-shadow: 0 28px 70px rgba(0,0,0,.42);
+    }
+
+    .settings-card img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .settings-card.profile img {
+      object-position: 41% 7%;
+      transform: scale(1.02);
+    }
+
+    .settings-card.learning img {
+      object-position: 50% 46%;
+      transform: scale(1.02);
+    }
+
+    .settings-caption {
+      position: absolute;
+      left: 26px;
+      bottom: 24px;
+      z-index: 3;
+      padding: 13px 19px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 999px;
+      background: rgba(2,7,6,.78);
+      backdrop-filter: blur(12px);
+      color: #e7ebe8;
+      font-size: 17px;
+      letter-spacing: .07em;
+    }
+
+    .settings-caption em {
+      color: var(--lime);
+      font-style: normal;
+      margin-right: 9px;
+    }
+
+    .warm-orb, .cool-orb {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(60px);
+      opacity: .15;
+      pointer-events: none;
+    }
+
+    .warm-orb { right: -120px; bottom: -180px; width: 620px; height: 620px; background: var(--warm); }
+    .cool-orb { left: 440px; top: -220px; width: 540px; height: 540px; background: var(--teal); }
+  </style>
+</head>
+<body>
+  <section class="slide" data-slide="1">
+    <img class="product-bg" src="gallery-product-raw.png" alt="">
+    <div class="product-shade"></div>
+    <div class="product-copy">
+      <div class="eyebrow">The product</div>
+      <h1 class="product-title">无声之声</h1>
+      <p class="product-sub">Voice for the Voiceless</p>
+      <p class="product-note">把声音写进视野，把回应放到指尖。<br>四种可能，一次选择。</p>
+    </div>
+    <div class="device-strip">
+      <span class="device-chip">Even G2 · 听见与看见</span>
+      <span class="device-arrow">→</span>
+      <span class="device-chip">Candidate Agent · 给出可能</span>
+      <span class="device-arrow">→</span>
+      <span class="device-chip">Even R1 · 亲自选择</span>
+    </div>
+    <div class="folio">01 / PRODUCT SYSTEM</div>
+    <div class="grain"></div>
+  </section>
+
+  <section class="slide" data-slide="2">
+    <div class="mark"><span class="mark-dot">○</span><span>无声之声</span></div>
+    <div class="hud-copy">
+      <div class="eyebrow">G2 HUD · LIVE UI</div>
+      <h2 class="display">把声音<br>写进视野</h2>
+      <p class="lede">对话不再稍纵即逝。<br>四条简短回应停留在眼前，<br>等待使用者亲自选择。</p>
+      <div class="principles">
+        <div class="principle"><b>01</b><span>听到的内容成为可见上下文</span></div>
+        <div class="principle"><b>02</b><span>候选恒为 4 条，每条不超过 12 字</span></div>
+        <div class="principle"><b>03</b><span>滑动选择，点按确认，双击换一批</span></div>
+      </div>
+    </div>
+    <div class="app-frame">
+      <img src="app-hud-live-clean.png" alt="">
+      <span class="hud-label">REAL BROWSER PREVIEW</span>
+      <span class="hud-highlight"></span>
+    </div>
+    <div class="folio">02 / SEE THE CONVERSATION</div>
+    <div class="grain"></div>
+  </section>
+
+  <section class="slide" data-slide="3">
+    <img class="flow-bg" src="gallery-product-raw.png" alt="">
+    <div class="flow-header">
+      <div class="eyebrow">END-TO-END · UNDER 5S</div>
+      <h2 class="display">从现实出发，回到现实</h2>
+    </div>
+    <div class="flow-canvas">
+      <svg class="flow-line" viewBox="0 0 1740 420" aria-hidden="true">
+        <defs>
+          <linearGradient id="route" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#dffdfa" stop-opacity=".18"/>
+            <stop offset=".57" stop-color="#baf0eb" stop-opacity=".8"/>
+            <stop offset=".7" stop-color="#f09a5f" stop-opacity=".95"/>
+            <stop offset="1" stop-color="#f09a5f" stop-opacity=".3"/>
+          </linearGradient>
+          <filter id="glow"><feGaussianBlur stdDeviation="5"/></filter>
+        </defs>
+        <path d="M155 210 C360 70 510 350 700 210 S1040 70 1220 210 S1500 330 1645 210"
+              fill="none" stroke="url(#route)" stroke-width="4" opacity=".9"/>
+        <path d="M155 210 C360 70 510 350 700 210 S1040 70 1220 210 S1500 330 1645 210"
+              fill="none" stroke="url(#route)" stroke-width="16" opacity=".18" filter="url(#glow)"/>
+      </svg>
+      <div class="flow-nodes">
+        <article class="flow-node">
+          <div class="node-top"><span class="node-no">01</span><span class="node-device">EVEN G2</span></div>
+          <h3 class="node-title">听见现实</h3>
+          <p class="node-body">主动开启一小段聆听窗口，<br>声音只在需要时进入系统。</p>
+        </article>
+        <article class="flow-node">
+          <div class="node-top"><span class="node-no">02</span><span class="node-device">CANDIDATE AGENT</span></div>
+          <h3 class="node-title">获得可能</h3>
+          <p class="node-body">转写语境，结合偏好与记忆，<br>生成四条受约束的短回应。</p>
+          <div class="candidate-dots"><i></i><i></i><i></i><i></i></div>
+        </article>
+        <article class="flow-node">
+          <div class="node-top"><span class="node-no">03</span><span class="node-device">EVEN R1</span></div>
+          <h3 class="node-title">亲自选择</h3>
+          <p class="node-body">滑动浏览、点按确认；<br>未经确认，AI 不会替你开口。</p>
+          <div class="candidate-dots"><i></i><i class="active"></i><i></i><i></i></div>
+        </article>
+        <article class="flow-node">
+          <div class="node-top"><span class="node-no">04</span><span class="node-device">PHONE · TTS</span></div>
+          <h3 class="node-title">回到对话</h3>
+          <p class="node-body">只有被选中的那句话，<br>才从手机扬声器回到现场。</p>
+        </article>
+      </div>
+    </div>
+    <div class="flow-foot">
+      <span>仅聆听窗口开麦</span>
+      <span>旧流程自动丢弃</span>
+      <span>断网仍有本地兜底</span>
+      <span>最终选择权始终属于用户</span>
+    </div>
+    <div class="folio">03 / LISTEN · CHOOSE · SPEAK</div>
+    <div class="grain"></div>
+  </section>
+
+  <section class="slide" data-slide="4">
+    <span class="cool-orb"></span>
+    <span class="warm-orb"></span>
+    <div class="settings-header">
+      <div class="eyebrow">CONTROLLED PERSONALIZATION</div>
+      <h2 class="display">让表达<br>更像自己</h2>
+    </div>
+    <p class="settings-lede">常用表达、避用词、语气与简洁度由用户设定；学习可以暂停，记录可以清除。AI 记住的是成功表达的方向，而不是接管下一句话。</p>
+    <div class="settings-grid">
+      <figure class="settings-card profile">
+        <img src="app-settings-profile.png" alt="">
+        <figcaption class="settings-caption"><em>01</em>表达困难、语气与简洁度</figcaption>
+      </figure>
+      <figure class="settings-card learning">
+        <img src="app-settings-learning.png" alt="">
+        <figcaption class="settings-caption"><em>02</em>隐私快捷模式与可控学习</figcaption>
+      </figure>
+    </div>
+    <div class="folio">04 / USER IN CONTROL</div>
+    <div class="grain"></div>
+  </section>
+
+  <script>
+    const requested = new URLSearchParams(location.search).get("slide") || "1";
+    document.querySelector(`[data-slide="${requested}"]`)?.classList.add("active");
+  </script>
+</body>
+</html>
