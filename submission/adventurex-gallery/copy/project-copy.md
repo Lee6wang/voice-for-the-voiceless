@@ -111,11 +111,11 @@ SenseVoice, sherpa-onnx, OpenAI-compatible LLM, Edge TTS, SQLite
 
 ## 7. GitHub 仓库
 
-**状态：地址已确认，仓库待公开**
+**状态：已公开并验证**
 
 https://github.com/Lee6wang/voice-for-the-voiceless
 
-> 提交前需要将仓库可见性从 Private 调整为 Public。
+> 已通过未登录请求验证仓库主页与 `main` 分支 README 可以公开访问。
 
 ## 8. 在线演示
 
