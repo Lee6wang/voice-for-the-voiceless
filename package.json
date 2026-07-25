@@ -2,6 +2,7 @@
   "name": "voice-for-the-voiceless",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "description": "无声之声 · 帮人把话说出口的社交表达搭子（Even 眼镜/戒指 + 云 API）",
   "workspaces": [
     "shared",
