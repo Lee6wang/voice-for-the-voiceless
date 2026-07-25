@@ -2,6 +2,7 @@
   "name": "@vftv/glasses-app",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "description": "Even G2 眼镜插件（TS + Even Hub SDK）：采音/HUD/输入/云编排",
   "scripts": {

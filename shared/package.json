@@ -2,6 +2,7 @@
   "name": "@vftv/shared",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "description": "接口契约的单一真相源：共享类型 + 模板库（glasses-app 与 backend 共用）",
   "type": "module",
   "main": "src/index.ts",
